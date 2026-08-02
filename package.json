@@ -1,0 +1,40 @@
+{
+  "name": "raidify-companion",
+  "version": "0.1.0",
+  "description": "Bridges the Raidify WoW addon's saved variables to the Raidify API.",
+  "author": "FriskyyDev",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "npm run build && electron-builder --win --ia32 --publish never",
+    "release": "npm run build && electron-builder --win --ia32 --publish always",
+    "schema:pull": "node scripts/pull-schema.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "wasmoon": "^1.16.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^3.2.4"
+  }
+}

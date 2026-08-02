@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+
+      # Publishes the installer AND `latest.yml` to a GitHub release, which is what
+      # electron-updater reads. Free CDN, no bucket, no manifest hosting — the same
+      # arrangement the WCL Uploader uses.
+      #
+      # UNSIGNED by decision (see COMPANION_APP_PLAN §4 in the raidify repo). When that
+      # is revisited, the signing secrets go here and `electron-builder.yml` gains a
+      # `signtoolOptions` block; nothing else changes.
+      - name: Build and publish
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The download page promises a checksum, so the release has to carry one.
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem dist/*.exe | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          $lines | Out-File -FilePath dist/SHA256SUMS.txt -Encoding utf8
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Attach checksums to the release
+        shell: pwsh
+        run: gh release upload $env:GITHUB_REF_NAME dist/SHA256SUMS.txt --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

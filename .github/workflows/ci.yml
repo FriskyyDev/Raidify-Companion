@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Windows, because that is the only thing we ship. Running the matrix on three
+    # runners would be paying for coverage of platforms nobody can download.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Packaging is where this project actually breaks — a build that compiles but
+      # produces an installer nobody can run is the failure mode worth catching on
+      # every PR, not on tag day.
+      - name: Package
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: installer
+          path: dist/*.exe
+          retention-days: 7
