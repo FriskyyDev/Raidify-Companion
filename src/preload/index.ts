@@ -17,8 +17,7 @@ const bridge = {
 
   authStatus: (): Promise<{ signedIn: boolean }> => ipcRenderer.invoke('auth:status'),
   signOut: (): Promise<{ signedIn: boolean }> => ipcRenderer.invoke('auth:signOut'),
-  setToken: (token: string): Promise<{ signedIn: boolean }> =>
-    ipcRenderer.invoke('auth:setToken', token),
+  signIn: (): Promise<{ signedIn: boolean; label: string }> => ipcRenderer.invoke('auth:signIn'),
 
   detectInstalls: (): Promise<SavedVariablesCandidate[]> => ipcRenderer.invoke('wow:autoDetect'),
   browseForInstall: (): Promise<SavedVariablesCandidate[]> => ipcRenderer.invoke('wow:browse'),

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { ApiClient } from './api';
+import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
 import { canPersist, clearToken, loadToken, saveToken } from './secrets';
 import { readNights } from './savedVariables';
@@ -95,12 +96,37 @@ ipcMain.handle('auth:signOut', () => {
   return { signedIn: false };
 });
 
-// TODO: the sign-in flow proper — device-code pairing against the web app, then
-// `saveToken`. Wired here so the shape is visible; the browser handoff is the next PR.
-ipcMain.handle('auth:setToken', (_event, token: unknown) => {
-  if (typeof token !== 'string' || token.length === 0) throw new Error('No token supplied.');
-  saveToken(token);
-  return { signedIn: true };
+/**
+ * Sign in. No code to type: the officer's own browser, one click, done.
+ *
+ * The verifier stays in this process for the whole flow — it is never put in the URL,
+ * so the code that travels back through the browser is worthless to anyone who sees it.
+ */
+ipcMain.handle('auth:signIn', async () => {
+  const { verifier, challenge } = createPkcePair();
+  const receiver = new LoopbackReceiver();
+
+  try {
+    const { port, code } = await receiver.listen();
+
+    await shell.openExternal(
+      buildAuthorizeUrl(API_BASE_URL ?? 'https://www.raidify.app', {
+        challenge,
+        port,
+        state: receiver.state,
+      }),
+    );
+
+    const result = await code;
+    const exchanged = await api.exchangeCode(result.code, verifier);
+    saveToken(exchanged.token);
+    return { signedIn: true, label: exchanged.label };
+  } finally {
+    // Belt and braces: the receiver closes itself on every path it knows about, but a
+    // listening socket left behind by an unexpected throw is a port held for the life of
+    // the process.
+    receiver.close();
+  }
 });
 
 // ── the install, and the file ───────────────────────────────────────────────────

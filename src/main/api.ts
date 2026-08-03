@@ -49,6 +49,25 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Trade the one-time code plus the verifier we have been holding for a token.
+   *
+   * Unauthenticated by necessity — the app has no credential yet; acquiring one is the
+   * point. What authorises it is the pair: a code that came back through the browser and
+   * a verifier that never left this machine.
+   */
+  async exchangeCode(
+    code: string,
+    codeVerifier: string,
+    signal?: AbortSignal,
+  ): Promise<{ token: string; tokenId: string; label: string }> {
+    return this.request('POST', '/api/v1/auth/companion/token', {
+      authenticated: false,
+      body: { code, codeVerifier },
+      signal,
+    });
+  }
+
   async uploadAttendance(
     guildId: string,
     body: AttendanceUploadRequest,
