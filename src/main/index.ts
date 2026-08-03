@@ -1,7 +1,11 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { ApiClient } from './api';
+import { autoDetect, findSavedVariables } from './discovery';
 import { canPersist, clearToken, loadToken, saveToken } from './secrets';
+import { readNights } from './savedVariables';
+import type { ParsedNight, SavedVariablesCandidate } from '../shared/types';
+import { SavedVariablesWatcher } from './watcher';
 import { evaluateCompat, type CompatVerdict } from '../shared/contract';
 
 /**
@@ -17,6 +21,12 @@ const CLIENT_VERSION = app.getVersion();
 const API_BASE_URL = process.env.RAIDIFY_API_URL ?? undefined;
 
 let window: BrowserWindow | null = null;
+let watcher: SavedVariablesWatcher | null = null;
+
+/** Tell the UI something happened, if it is there to hear it. */
+function emit(channel: string, payload: unknown): void {
+  window?.webContents.send(channel, payload);
+}
 
 const api = new ApiClient({
   baseUrl: API_BASE_URL,
@@ -85,12 +95,68 @@ ipcMain.handle('auth:signOut', () => {
   return { signedIn: false };
 });
 
-// TODO(step 3): the sign-in flow proper — device-code pairing against the web app, then
+// TODO: the sign-in flow proper — device-code pairing against the web app, then
 // `saveToken`. Wired here so the shape is visible; the browser handoff is the next PR.
 ipcMain.handle('auth:setToken', (_event, token: unknown) => {
   if (typeof token !== 'string' || token.length === 0) throw new Error('No token supplied.');
   saveToken(token);
   return { signedIn: true };
+});
+
+// ── the install, and the file ───────────────────────────────────────────────────
+
+ipcMain.handle('wow:autoDetect', (): Promise<SavedVariablesCandidate[]> => autoDetect());
+
+/**
+ * Let the officer point at the folder themselves.
+ *
+ * Auto-detection is a convenience and never the last word — people move installs, run
+ * two of them, and keep an old one around.
+ */
+ipcMain.handle('wow:browse', async (): Promise<SavedVariablesCandidate[]> => {
+  if (!window) return [];
+  const result = await dialog.showOpenDialog(window, {
+    title: 'Find your World of Warcraft folder',
+    properties: ['openDirectory'],
+  });
+  const chosen = result.filePaths[0];
+  return result.canceled || !chosen ? [] : findSavedVariables(chosen);
+});
+
+/** Read whatever is on disk right now, without waiting for the game to flush. */
+ipcMain.handle('wow:read', (_event, path: unknown): Promise<ParsedNight[]> => {
+  if (typeof path !== 'string' || !path) throw new Error('No saved-variables path supplied.');
+  return readNights(path);
+});
+
+/**
+ * Start watching. One watcher at a time — a second one would double every upload, and
+ * two watchers racing on the same file is the kind of bug that only shows up on a night
+ * that matters.
+ */
+ipcMain.handle('wow:watch', async (_event, path: unknown) => {
+  if (typeof path !== 'string' || !path) throw new Error('No saved-variables path supplied.');
+
+  watcher?.stop();
+  watcher = new SavedVariablesWatcher(
+    { path },
+    {
+      onNights: (nights) => emit('wow:nights', nights),
+      onError: (error) => emit('wow:error', { message: error.message }),
+    },
+  );
+  watcher.start();
+
+  // Read once immediately: the interesting flush may already have happened while the
+  // app was closed, and a companion that only notices future raids is half a companion.
+  await watcher.readNow();
+  return { watching: true, path };
+});
+
+ipcMain.handle('wow:unwatch', () => {
+  watcher?.stop();
+  watcher = null;
+  return { watching: false };
 });
 
 // ── lifecycle ───────────────────────────────────────────────────────────────────
@@ -114,6 +180,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('window-all-closed', () => {
+    watcher?.stop();
     app.quit();
   });
 }

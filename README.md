@@ -34,13 +34,17 @@ afternoon.
 
 ```
 src/
-  main/        Everything that touches disk, network or a credential
-    api.ts       The only two calls that leave this machine
-    lua.ts       Sandboxed Lua evaluation of RaidifyDB.lua
-    secrets.ts   Token at rest, via safeStorage
-  preload/     The named IPC surface — not a generic invoke passthrough
-  renderer/    React + Tailwind. No Node access
-  shared/      The API contract, mirrored from CompanionDtos.cs
+  main/                  Everything that touches disk, network or a credential
+    api.ts                 The only two calls that leave this machine
+    lua.ts                 Sandboxed Lua evaluation — and `toArray`, see below
+    savedVariables.ts      RaidifyDB.lua → a night, with .bak fallback
+    discovery.ts           Finding the install, the flavour and the account
+    watcher.ts             One flush → one read, debounced and size-stable
+    secrets.ts             Token at rest, via safeStorage
+  preload/               The named IPC surface — not a generic invoke passthrough
+  renderer/              React + Tailwind. No Node access
+  shared/                The API contract and the IPC types
+fixtures/wow/            A real WTF tree the tests read
 ```
 
 ## Commands
@@ -63,9 +67,26 @@ GitHub release, and attaches `SHA256SUMS.txt`.
 The download page promises a checksum and an explanation of the SmartScreen warning —
 an unexplained wall reads as malware, an explained one reads as a small project.
 
+## Traps worth knowing before you touch the parser
+
+**`toArray` is not optional.** wasmoon returns a Lua `1..n` table as *either* a JS array
+or an object keyed `"1".."n"`, depending on the table's size — measured with 1.16:
+1–2 array, 3–4 object, 5–6 array, 7–8 object, 9 array, 40 array. That follows Lua's
+internal array/hash split. A five-man roster and a seven-man roster parse to different
+types, so a fixture small enough to be convenient hides the bug and a real raid finds it.
+Always go through `toArray` (`src/main/lua.ts`), which is pinned by a test.
+
+**The bucketing is duplicated.** `bucketNight` in `src/main/savedVariables.ts` mirrors
+`Raidify:GetAttendanceData()` in the addon's `Attendance.lua` — same grace period, same
+status codes, computed from disk instead of live game state. Two implementations of one
+rule drift. The durable fix is for the addon to persist the bucketed result when a
+session ends; do that before the rules get more interesting than late and left-early.
+
+**A session without a roster is refused, not uploaded.** Without the roster the addon
+only knows who it *saw*, so uploading would silently turn every no-show into nothing.
+
 ## Not built yet
 
-Step 3 of the plan's sequence: WoW install discovery, the file watcher (debounce plus a
-size-stable check — WoW writes SavedVariables by rename and a poll can catch it
-mid-write), `.lua.bak` fallback, the account/flavour picker, and the sign-in flow proper.
-`src/main/index.ts` has the IPC shape for sign-in already so the boundary is visible.
+The sign-in flow proper — device-code pairing against the web app. `src/main/index.ts`
+has the IPC shape so the boundary is visible; the browser handoff is next. After that,
+the UI: guided first-run, upload history, and the consent screen.

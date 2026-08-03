@@ -16,6 +16,30 @@ import { LuaFactory } from 'wasmoon';
 /** Guards against a truncated or hostile file wedging the app. */
 const EVAL_TIMEOUT_MS = 10_000;
 
+/**
+ * Read a Lua list as an array, whichever shape wasmoon happened to produce.
+ *
+ * Always use this for anything the addon writes with `table.insert` or `[n] =`. See the
+ * warning above for why trusting `Array.isArray` here is a raid-night bug waiting for a
+ * roster of the wrong size.
+ */
+export function toArray<T = unknown>(value: unknown): T[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const out: T[] = [];
+
+  // Lua lists are 1-based and contiguous; stop at the first gap rather than pulling in
+  // unrelated string keys from a table that is not a list at all.
+  for (let i = 1; Object.prototype.hasOwnProperty.call(record, String(i)); i++) {
+    out.push(record[String(i)] as T);
+  }
+
+  return out;
+}
+
 export class LuaParseError extends Error {
   constructor(message: string, readonly cause?: unknown) {
     super(message);
@@ -30,10 +54,13 @@ export class LuaParseError extends Error {
  * assignments of table literals and needs none of it, and this file arrives from disk
  * where anything could have written it.
  *
- * ⚠️ **Indices shift.** A Lua table whose keys are `1..n` comes back as a real JS array,
- * so the addon's `roster[1]` is `roster[0]` here. Writing `[1]` for the first entry is
- * the obvious mistake and it silently reads the second raider instead — which, in an
- * attendance file, means quietly recording the wrong person.
+ * ⚠️ **Never index the result of a Lua list directly — use {@link toArray}.** A `1..n`
+ * table comes back as *either* a JS array (0-indexed, so the addon's `[1]` is `[0]`) or
+ * a plain object keyed `"1".."n"`, and which one you get depends on the table's size.
+ * Measured with wasmoon 1.16: 1–2 array, 3–4 object, 5–6 array, 7–8 object, 9 array,
+ * 40 array. That follows Lua's internal array/hash split, so it is not a bug to wait
+ * out — it means a five-man roster and a twenty-five-man roster parse to different
+ * shapes, and a fixture small enough to be convenient hides it.
  */
 export async function readSavedVariable<T = unknown>(
   source: string,
