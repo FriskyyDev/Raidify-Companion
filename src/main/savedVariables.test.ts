@@ -282,3 +282,48 @@ describe('archived nights', () => {
     expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Benched);
   });
 });
+
+describe('stale nights', () => {
+  const secondsAgo = (days: number) => Math.floor(Date.now() / 1000) - days * 86_400;
+
+  function nightEndedDaysAgo(days: number) {
+    return bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Fenrik', status: 1 }] },
+      attendanceSession: {
+        startedAt: secondsAgo(days),
+        endedAt: secondsAgo(days) + 3 * 3600,
+        lastKnownMembers: { fenrik: true },
+        tracker: { everPresent: { fenrik: true }, firstSeen: { fenrik: secondsAgo(days) } },
+      },
+    });
+  }
+
+  it('does not call last Tuesday stale', () => {
+    // "I forgot to upload last week" has to keep working.
+    expect(nightEndedDaysAgo(7).stale).toBe(false);
+  });
+
+  it('calls a months-old session stale', () => {
+    // The officer who led one raid on an alt in March still has that session on disk,
+    // and every flush re-offers it. Uploaded, it would rewrite five-month-old history
+    // or mint a standalone night everyone else is suddenly absent from.
+    expect(nightEndedDaysAgo(150).stale).toBe(true);
+  });
+
+  it('treats a night with no usable timestamp as stale', () => {
+    // Nothing to place it with, so nothing should send it unasked.
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Fenrik', status: 1 }] },
+      attendanceSession: { lastKnownMembers: { fenrik: true }, tracker: { everPresent: { fenrik: true } } },
+    });
+
+    expect(night.stale).toBe(true);
+  });
+
+  it('is still reported rather than hidden', () => {
+    // The officer may genuinely want to send an old night. Marking it is the point;
+    // dropping it silently would be the same silence this app keeps having to fix.
+    const night = nightEndedDaysAgo(150);
+    expect(night.rows.length).toBeGreaterThan(0);
+  });
+});

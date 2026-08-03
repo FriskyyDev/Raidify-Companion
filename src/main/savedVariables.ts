@@ -21,6 +21,15 @@ import { LuaParseError, readSavedVariable, toArray } from './lua';
 const LEFT_EARLY_GRACE_SECONDS = 300;
 
 /**
+ * Past this, a night is history rather than news.
+ *
+ * Two weeks is comfortably longer than "I forgot to upload last Tuesday" and far shorter
+ * than the months an abandoned alt's session sits on disk being re-offered on every
+ * flush. See `ParsedNight.stale`.
+ */
+const STALE_AFTER_DAYS = 14;
+
+/**
  * Matches `lateGraceSeconds` in `Attendance.lua`.
  *
  * `firstSeen` is a real sighting, so everyone at the pull is a few seconds after the
@@ -215,8 +224,15 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
     startedAt: toDate(startedAt),
     endedAt: toDate(session.endedAt),
     finished: toDate(session.endedAt) !== null,
+    stale: isStale(toDate(session.endedAt) ?? toDate(startedAt)),
     rows,
   };
+}
+
+/** A night with no usable timestamp at all counts as stale — we cannot place it. */
+function isStale(when: Date | null): boolean {
+  if (!when) return true;
+  return Date.now() - when.getTime() > STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
 }
 
 /**

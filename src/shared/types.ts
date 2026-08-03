@@ -31,5 +31,19 @@ export interface ParsedNight {
   endedAt: Date | null;
   /** The addon considers the night finished — it set an end time. */
   finished: boolean;
+
+  /**
+   * Old enough that uploading it would be rewriting history rather than recording it.
+   *
+   * An officer who led one raid on an alt in March still has that session sitting in
+   * their saved variables, and every flush of the file re-offers it. Uploaded, the
+   * server would match it by date to a March raid and overwrite five-month-old
+   * attendance, or mint a standalone March night that everyone else is suddenly 0/1 on.
+   *
+   * Still returned rather than hidden — the officer may genuinely want to send an old
+   * night — but nothing should upload one without being asked.
+   */
+  stale: boolean;
+
   rows: AttendanceRow[];
 }
