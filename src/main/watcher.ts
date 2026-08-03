@@ -39,11 +39,15 @@ export interface WatcherOptions {
    * and teaches people to re-run the build.
    */
   stability?: { intervalMs?: number; requiredStableChecks?: number; timeoutMs?: number };
+
+  /** How long to wait before re-attaching a watch that died with its directory. */
+  rearmMs?: number;
 }
 
 export class SavedVariablesWatcher {
   private watcher: FSWatcher | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private rearmTimer: NodeJS.Timeout | null = null;
   private reading = false;
   private missedWhileReading = false;
 
@@ -65,18 +69,58 @@ export class SavedVariablesWatcher {
   start(): void {
     if (this.watcher) return;
     this.stopped = false;
+    this.arm();
+  }
+
+  /**
+   * Attach the filesystem watch, and keep trying if it is not attachable yet.
+   *
+   * The watch is on the directory rather than the file because WoW writes by rename and
+   * a watch bound to the old inode stops firing after the first flush.
+   *
+   * But the directory itself can go away — a WoW repair, a Battle.net update, the user
+   * moving the install, backup software. When that happens the FSWatcher either errors
+   * once or quietly goes inert while staying non-null, and `start()` refuses to re-arm
+   * because it thinks it is already watching. The officer dismisses one error and the
+   * app is deaf for every raid night after, while still reporting `watching: true`.
+   */
+  private arm(): void {
+    if (this.stopped) return;
 
     const directory = dirname(this.options.path);
     const target = basename(this.options.path);
 
-    this.watcher = watch(directory, (_event, filename) => {
-      // The `.bak` changes in the same breath as the real file; only one of them should
-      // start a read, or every flush is handled twice.
-      if (filename !== target) return;
-      this.schedule();
-    });
+    try {
+      this.watcher = watch(directory, (_event, filename) => {
+        // The `.bak` changes in the same breath as the real file; only one of them
+        // should start a read, or every flush is handled twice.
+        if (filename !== target) return;
+        this.schedule();
+      });
+    } catch (error) {
+      // The folder does not exist yet — a fresh install, or mid-repair. Not fatal.
+      this.events.onError(error instanceof Error ? error : new Error(String(error)));
+      this.rearmLater();
+      return;
+    }
 
-    this.watcher.on('error', (error) => this.events.onError(error as Error));
+    this.watcher.on('error', (error) => {
+      this.events.onError(error as Error);
+      this.watcher?.close();
+      this.watcher = null;
+      this.rearmLater();
+    });
+  }
+
+  private rearmLater(): void {
+    if (this.stopped || this.rearmTimer) return;
+    this.rearmTimer = setTimeout(() => {
+      this.rearmTimer = null;
+      if (this.watcher) return;
+      this.arm();
+      // A directory that came back may already hold a finished night.
+      void this.read();
+    }, this.options.rearmMs ?? 30_000);
   }
 
   stop(): void {
@@ -85,6 +129,8 @@ export class SavedVariablesWatcher {
     this.watcher = null;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.rearmTimer) clearTimeout(this.rearmTimer);
+    this.rearmTimer = null;
   }
 
   /** Read now, without waiting for a write — used on startup and by a manual refresh. */

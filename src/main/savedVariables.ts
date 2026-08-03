@@ -57,8 +57,21 @@ interface ImportedData {
   currentRoster?: unknown;
 }
 
+/**
+ * A night the addon finished with before it could be uploaded.
+ *
+ * Carries its own roster, because the buckets cannot be reconstructed from the roster
+ * that happens to be loaded now — archiving exists precisely for the case where a newer
+ * import replaced it.
+ */
+interface ArchivedSession extends AttendanceSession {
+  roster?: unknown;
+  raidInfo?: { id?: string; title?: string };
+}
+
 interface CharScope {
   attendanceSession?: AttendanceSession;
+  attendanceHistory?: unknown;
   importedData?: ImportedData;
 }
 
@@ -246,8 +259,23 @@ export async function readNights(path: string): Promise<ParsedNight[]> {
       nights.push(bucketNight(characterKey, scope));
     } catch (error) {
       // One character without a session is the normal case — most alts never raid.
-      if (error instanceof NoSessionError) continue;
-      throw error;
+      if (!(error instanceof NoSessionError)) throw error;
+    }
+
+    // Nights the addon set aside because a new roster was imported before they were
+    // uploaded. Without these, importing Thursday's roster on Thursday afternoon
+    // silently destroyed Wednesday — and "upload whenever" is what we tell officers.
+    for (const archived of toArray<ArchivedSession>(scope.attendanceHistory)) {
+      try {
+        nights.push(
+          bucketNight(characterKey, {
+            attendanceSession: archived,
+            importedData: { raidInfo: archived.raidInfo, currentRoster: archived.roster },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof NoSessionError)) throw error;
+      }
     }
   }
 

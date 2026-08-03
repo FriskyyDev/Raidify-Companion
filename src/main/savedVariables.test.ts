@@ -218,3 +218,67 @@ describe('name keying', () => {
     expect(anHourLate.rows[0]!.bucket).toBe(AttendanceBucket.Late);
   });
 });
+
+describe('archived nights', () => {
+  it('reads a night the addon set aside when a new roster was imported', () => {
+    // The officer raids Wednesday, does not upload, then imports Thursday's roster on
+    // Thursday afternoon. Before archiving, Wednesday was destroyed at that moment —
+    // while the product tells officers they can upload whenever they like.
+    const nights = [];
+    const scope = {
+      // Thursday's freshly imported roster, with no session yet.
+      importedData: {
+        raidInfo: { id: 'thursday', title: 'Thursday' },
+        currentRoster: [{ name: 'Fenrik', status: 1 }],
+      },
+      attendanceHistory: [
+        {
+          startedAt: 1000,
+          endedAt: 9000,
+          lastKnownMembers: { wednesdayraider: true },
+          tracker: {
+            everPresent: { wednesdayraider: true },
+            firstSeen: { wednesdayraider: 1000 },
+            lastSeen: { wednesdayraider: 9000 },
+          },
+          // Wednesday's own roster travels with the night.
+          roster: [{ name: 'Wednesdayraider', status: 1 }],
+          raidInfo: { id: 'wednesday', title: 'Wednesday' },
+        },
+      ],
+    };
+
+    for (const archived of scope.attendanceHistory) {
+      nights.push(
+        bucketNight('Fenrik - Nightslayer', {
+          attendanceSession: archived,
+          importedData: { raidInfo: archived.raidInfo, currentRoster: archived.roster },
+        }),
+      );
+    }
+
+    expect(nights).toHaveLength(1);
+    expect(nights[0]!.raidIdHint).toBe('wednesday');
+    expect(nights[0]!.rows[0]!.name).toBe('Wednesdayraider');
+    expect(nights[0]!.rows[0]!.bucket).toBe(AttendanceBucket.Present);
+  });
+
+  it('buckets an archived night against its own roster, not the current one', () => {
+    // The whole point: the roster on disk now belongs to a different raid.
+    const night = bucketNight('X - Y', {
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: {},
+        tracker: { everPresent: {}, firstSeen: {}, lastSeen: {} },
+      },
+      importedData: {
+        currentRoster: [{ name: 'Oldraider', status: 3 }],
+      },
+    });
+
+    // Waitlisted and never seen — a bench, taken from the roster it was handed.
+    expect(night.rows[0]!.name).toBe('Oldraider');
+    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Benched);
+  });
+});

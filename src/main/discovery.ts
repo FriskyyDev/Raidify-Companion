@@ -40,13 +40,43 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Subdirectories, including the ones Windows hides behind a link.
+ *
+ * `Dirent.isDirectory()` is false for an NTFS junction or a symlink, and a junction is
+ * the standard way people relocate a WoW install to another drive. Relying on the Dirent
+ * type made those installs invisible to auto-detect *and* to the manual browse path — the
+ * app would tell someone there was no WoW in a folder they were looking at.
+ *
+ * So anything that is not obviously a file gets a `stat`, which follows the link.
+ */
 async function subdirectories(path: string): Promise<string[]> {
+  let entries;
   try {
-    const entries = await readdir(path, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch (error) {
+    // Permission denied is not "nothing here", and reporting it as such is how an
+    // officer ends up staring at a folder the app claims is empty.
+    if ((error as NodeJS.ErrnoException)?.code === 'EACCES') throw error;
     return [];
   }
+
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      names.push(entry.name);
+      continue;
+    }
+    if (!entry.isSymbolicLink()) continue;
+
+    try {
+      if ((await stat(join(path, entry.name))).isDirectory()) names.push(entry.name);
+    } catch {
+      // A broken link. Not a directory, not an error worth surfacing.
+    }
+  }
+
+  return names;
 }
 
 /**
@@ -73,7 +103,15 @@ export async function findSavedVariables(installPath: string): Promise<SavedVari
       const path = join(accountRoot, account, 'SavedVariables', 'RaidifyDB.lua');
       if (!(await exists(path))) continue;
 
-      const info = await stat(path);
+      // Guarded: a file deleted between the check and here, or one we cannot read, must
+      // not abort the whole scan and take every other candidate down with it.
+      let info;
+      try {
+        info = await stat(path);
+      } catch {
+        continue;
+      }
+
       found.push({
         installPath,
         flavour: flavour || '(install root)',
@@ -98,7 +136,11 @@ export async function findSavedVariables(installPath: string): Promise<SavedVari
 export async function autoDetect(): Promise<SavedVariablesCandidate[]> {
   const roots = new Set(COMMON_ROOTS);
 
-  // Whatever the launcher recorded, if anything.
+  // The standard install locations, resolved against this machine's actual Program
+  // Files paths rather than assumed to be on C:. This does NOT consult Battle.net's
+  // product.db or the registry, so a non-default install — E:\Games\... — will not be
+  // found here and has to be picked by hand. Worth doing properly one day; until then
+  // this comment is the honest version.
   for (const envVar of ['ProgramFiles(x86)', 'ProgramFiles', 'ProgramW6432']) {
     const base = process.env[envVar];
     if (base) roots.add(join(base, 'World of Warcraft'));
@@ -106,8 +148,14 @@ export async function autoDetect(): Promise<SavedVariablesCandidate[]> {
 
   const results: SavedVariablesCandidate[] = [];
   for (const root of roots) {
-    if (!(await exists(root))) continue;
-    results.push(...(await findSavedVariables(root)));
+    try {
+      if (!(await exists(root))) continue;
+      results.push(...(await findSavedVariables(root)));
+    } catch {
+      // One unreadable root — a locked-down folder, a disconnected drive — must not
+      // take the whole scan with it. A hand-picked folder still reports its error,
+      // because there the user is looking straight at the thing that failed.
+    }
   }
 
   // Two roots can resolve to the same file; keep the first sighting of each path.

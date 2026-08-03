@@ -192,4 +192,62 @@ describe('SavedVariablesWatcher', () => {
 
     expect(sink.nights).toHaveLength(1);
   });
+
+  it('re-arms itself after the watched folder is deleted and recreated', async () => {
+    // A WoW repair, a Battle.net update, or the user moving the install. The watch dies
+    // with the directory, and before this the watcher went permanently deaf while still
+    // reporting that it was watching — silence for every raid night afterwards.
+    const { mkdir, rm } = await import('node:fs/promises');
+    const dir = await mkdtemp(join(tmpdir(), 'rfc-rearm-'));
+    const nested = join(dir, 'SavedVariables');
+    await mkdir(nested);
+    const path = join(nested, 'RaidifyDB.lua');
+    await copyFile(FIXTURE, path);
+
+    const sink = collect();
+    const watcher = new SavedVariablesWatcher(
+      { path, debounceMs: 20, stability: FAST, rearmMs: 60 },
+      sink.events,
+    );
+    watcher.start();
+
+    try {
+      await rm(nested, { recursive: true, force: true });
+      await new Promise((r) => setTimeout(r, 150));
+
+      // The folder comes back, as it does after a repair finishes.
+      await mkdir(nested, { recursive: true });
+      await new Promise((r) => setTimeout(r, 200));
+      await copyFile(FIXTURE, path);
+
+      await waitFor(() => sink.nights.length > 0, 5_000);
+      expect(sink.nights.length).toBeGreaterThan(0);
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  it('stops re-arming once it has been stopped', async () => {
+    const { mkdir, rm } = await import('node:fs/promises');
+    const dir = await mkdtemp(join(tmpdir(), 'rfc-rearm2-'));
+    const nested = join(dir, 'SavedVariables');
+    await mkdir(nested);
+    const path = join(nested, 'RaidifyDB.lua');
+    await copyFile(FIXTURE, path);
+
+    const sink = collect();
+    const watcher = new SavedVariablesWatcher(
+      { path, debounceMs: 20, stability: FAST, rearmMs: 30 },
+      sink.events,
+    );
+    watcher.start();
+    await rm(nested, { recursive: true, force: true });
+    watcher.stop();
+
+    await mkdir(nested, { recursive: true });
+    await copyFile(FIXTURE, path);
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(sink.nights).toHaveLength(0);
+  });
 });

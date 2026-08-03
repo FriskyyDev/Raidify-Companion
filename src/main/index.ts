@@ -74,11 +74,12 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#191c22',
     webPreferences: {
-      // .mjs, not .js: package.json declares "type": "module", so electron-vite emits
-      // the preload as ESM with that extension. Getting this wrong does not throw
-      // anywhere visible — the preload simply fails to load, `window.companion` is
-      // undefined, and the window renders its static shell and then does nothing
-      // forever. Packaging still succeeds, which is why CI never caught it.
+      // .cjs, and it must stay that way: a sandboxed preload is not an ES module, and
+      // electron.vite.config.ts forces CommonJS output to match. Getting this filename
+      // wrong does not throw anywhere visible — the preload simply fails to load,
+      // `window.companion` is undefined, and the window renders its shell and then does
+      // nothing forever, while packaging still succeeds. That shipped once. `npm run
+      // smoke` and src/main/build.test.ts exist to make sure it cannot ship again.
       preload: join(__dirname, '../preload/index.cjs'),
       // The preload uses only contextBridge and ipcRenderer, both of which work
       // sandboxed. Leaving it off meant any renderer-side flaw ran as the user with no
@@ -247,7 +248,9 @@ ipcMain.handle('auth:signIn', async () => {
 
 // ── the install, and the file ───────────────────────────────────────────────────
 
-ipcMain.handle('wow:autoDetect', (): Promise<SavedVariablesCandidate[]> => autoDetect());
+ipcMain.handle('wow:autoDetect', async (): Promise<SavedVariablesCandidate[]> =>
+  remember(await autoDetect()),
+);
 
 /**
  * Let the officer point at the folder themselves.
@@ -262,22 +265,44 @@ ipcMain.handle('wow:browse', async (): Promise<SavedVariablesCandidate[]> => {
     properties: ['openDirectory'],
   });
   const chosen = result.filePaths[0];
-  return result.canceled || !chosen ? [] : findSavedVariables(chosen);
+  return result.canceled || !chosen ? [] : remember(await findSavedVariables(chosen));
 });
 
-/** Read whatever is on disk right now, without waiting for the game to flush. */
-ipcMain.handle('wow:read', (_event, path: unknown): Promise<ParsedNight[]> => {
+/**
+ * Paths the renderer is allowed to name.
+ *
+ * Only ones this process discovered itself, via auto-detect or the folder picker. The
+ * renderer previously passed any absolute path straight through to a file read and a Lua
+ * evaluation — an arbitrary-file-read-and-parse primitive handed to the least trusted
+ * part of the app, for no reason: it only ever names paths we just gave it.
+ */
+const discovered = new Set<string>();
+
+function remember(candidates: SavedVariablesCandidate[]): SavedVariablesCandidate[] {
+  for (const candidate of candidates) discovered.add(candidate.path);
+  return candidates;
+}
+
+function requireDiscovered(path: unknown): string {
   if (typeof path !== 'string' || !path) throw new Error('No saved-variables path supplied.');
-  return readNights(path);
-});
+  if (!discovered.has(path)) {
+    throw new Error('That file was not one of the saved-variables files this app found.');
+  }
+  return path;
+}
+
+/** Read whatever is on disk right now, without waiting for the game to flush. */
+ipcMain.handle('wow:read', (_event, path: unknown): Promise<ParsedNight[]> =>
+  readNights(requireDiscovered(path)),
+);
 
 /**
  * Start watching. One watcher at a time — a second one would double every upload, and
  * two watchers racing on the same file is the kind of bug that only shows up on a night
  * that matters.
  */
-ipcMain.handle('wow:watch', async (_event, path: unknown) => {
-  if (typeof path !== 'string' || !path) throw new Error('No saved-variables path supplied.');
+ipcMain.handle('wow:watch', async (_event, rawPath: unknown) => {
+  const path = requireDiscovered(rawPath);
 
   watcher?.stop();
   watcher = new SavedVariablesWatcher(
