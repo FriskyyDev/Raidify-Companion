@@ -9,6 +9,9 @@ const FIXTURE = resolve(
   'fixtures/wow/_classic_era_/WTF/Account/TESTACCOUNT#1/SavedVariables/RaidifyDB.lua',
 );
 
+/** Milliseconds, not seconds — the production defaults would make these tests race the clock. */
+const FAST = { intervalMs: 5, requiredStableChecks: 2, timeoutMs: 3_000 };
+
 async function scratch(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'rfc-watch-'));
   return join(dir, 'RaidifyDB.lua');
@@ -35,7 +38,7 @@ describe('SavedVariablesWatcher', () => {
     await copyFile(FIXTURE, path);
 
     const sink = collect();
-    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20 }, sink.events);
+    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20, stability: FAST }, sink.events);
     try {
       await watcher.readNow();
     } finally {
@@ -54,7 +57,7 @@ describe('SavedVariablesWatcher', () => {
     await copyFile(FIXTURE, path);
 
     const sink = collect();
-    const watcher = new SavedVariablesWatcher({ path, debounceMs: 60 }, sink.events);
+    const watcher = new SavedVariablesWatcher({ path, debounceMs: 60, stability: FAST }, sink.events);
     watcher.start();
 
     try {
@@ -80,7 +83,7 @@ describe('SavedVariablesWatcher', () => {
     await writeFile(path, 'RaidifyDB = { ["char"] = {', 'utf8');
 
     const sink = collect();
-    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20 }, sink.events);
+    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20, stability: FAST }, sink.events);
     try {
       await watcher.readNow();
     } finally {
@@ -96,7 +99,7 @@ describe('SavedVariablesWatcher', () => {
     await copyFile(FIXTURE, path);
 
     const sink = collect();
-    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20 }, sink.events);
+    const watcher = new SavedVariablesWatcher({ path, debounceMs: 20, stability: FAST }, sink.events);
     watcher.start();
     watcher.stop();
     watcher.start();

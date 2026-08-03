@@ -122,18 +122,19 @@ describe('waitForStableFile', () => {
   });
 
   it('gives up on a file that never settles', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'rfc-'));
-    const path = join(dir, 'RaidifyDB.lua');
-    await writeFile(path, '', 'utf8');
-
+    // The probe is injected rather than racing a real writer against the poller — that
+    // version passed locally and failed on a slower CI runner, which is exactly the
+    // kind of test that teaches people to re-run the build instead of reading it.
     let size = 0;
-    const grow = setInterval(() => void writeFile(path, 'x'.repeat((size += 100)), 'utf8'), 5);
-    try {
-      await expect(
-        waitForStableFile(path, { intervalMs: 10, requiredStableChecks: 3, timeoutMs: 200 }),
-      ).rejects.toThrow(/kept changing/);
-    } finally {
-      clearInterval(grow);
-    }
+    const growing = async () => (size += 100);
+
+    await expect(
+      waitForStableFile('irrelevant', {
+        intervalMs: 1,
+        requiredStableChecks: 3,
+        timeoutMs: 50,
+        probeSize: growing,
+      }),
+    ).rejects.toThrow(/kept changing/);
   });
 });

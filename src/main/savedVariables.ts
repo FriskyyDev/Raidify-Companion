@@ -205,14 +205,27 @@ export async function readNights(path: string): Promise<ParsedNight[]> {
  */
 export async function waitForStableFile(
   path: string,
-  { intervalMs = 400, requiredStableChecks = 3, timeoutMs = 30_000 } = {},
+  {
+    intervalMs = 400,
+    requiredStableChecks = 3,
+    timeoutMs = 30_000,
+    // Injectable so the "never settles" case can be tested by controlling what the
+    // probe reports. Racing a real writer against a real poller makes a test that
+    // passes on a fast machine and fails on a slow one, which is worse than no test.
+    probeSize = async (p: string) => (await stat(p)).size,
+  }: {
+    intervalMs?: number;
+    requiredStableChecks?: number;
+    timeoutMs?: number;
+    probeSize?: (path: string) => Promise<number>;
+  } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastSize = -1;
   let stable = 0;
 
   while (Date.now() < deadline) {
-    const { size } = await stat(path);
+    const size = await probeSize(path);
     stable = size === lastSize ? stable + 1 : 0;
     lastSize = size;
     if (stable >= requiredStableChecks) return;

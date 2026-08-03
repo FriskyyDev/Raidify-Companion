@@ -29,6 +29,13 @@ export interface WatcherOptions {
   path: string;
   /** How long writes must stop before we read. */
   debounceMs?: number;
+  /**
+   * Size-stability settings passed to {@link waitForStableFile}. Exposed so tests can
+   * run in milliseconds instead of seconds — a test whose budget is a second and a half
+   * against a check that takes one and a quarter is a test that fails on a slow runner
+   * and teaches people to re-run the build.
+   */
+  stability?: { intervalMs?: number; requiredStableChecks?: number; timeoutMs?: number };
 }
 
 export class SavedVariablesWatcher {
@@ -85,7 +92,7 @@ export class SavedVariablesWatcher {
 
     this.reading = true;
     try {
-      await waitForStableFile(this.options.path);
+      await waitForStableFile(this.options.path, this.options.stability);
       const nights = await readNights(this.options.path);
       if (nights.length > 0) this.events.onNights(nights);
     } catch (error) {
