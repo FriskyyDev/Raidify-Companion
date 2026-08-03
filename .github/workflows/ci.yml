@@ -25,8 +25,11 @@ jobs:
 
       - run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
+      # Build BEFORE test, so the build-output assertions in src/main/build.test.ts have
+      # something to inspect. They skip themselves when out/ is absent, which would make
+      # a green run meaningless if this ran the other way round.
+      - name: Build
+        run: npm run build
 
       - name: Test
         run: npm test

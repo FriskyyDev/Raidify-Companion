@@ -138,3 +138,83 @@ describe('waitForStableFile', () => {
     ).rejects.toThrow(/kept changing/);
   });
 });
+
+describe('name keying', () => {
+  it('matches accented names the way the addon wrote them', () => {
+    // WoW's Lua string.lower is byte-wise C tolower: "Ómen" stays "Ómen". JS
+    // toLowerCase() would fold it to "ómen" and match nothing the addon wrote, so every
+    // accented EU raider uploaded as a no-show — silently, with a well-formed row.
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Ómen', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 5000,
+        // Key exactly as Lua would have written it: only A-Z lowered.
+        lastKnownMembers: { 'Ómen': true },
+        tracker: { everPresent: { 'Ómen': true }, firstSeen: { 'Ómen': 1000 } },
+      },
+    });
+
+    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Present);
+  });
+
+  it('does not credit a raider named Constructor via the prototype', () => {
+    // everPresent['constructor'] is Object.prototype.constructor — truthy — so an
+    // approved no-show was bucketed Present, and `endedAt - last` on a function is NaN.
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Constructor', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 5000,
+        lastKnownMembers: {},
+        tracker: { everPresent: {}, firstSeen: {}, lastSeen: {} },
+      },
+    });
+
+    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Absent);
+  });
+
+  it('ignores a __proto__ entry trying to forge presence', () => {
+    // wasmoon assigns table[key] = value, so a Lua ["__proto__"] key replaces the
+    // object's prototype rather than becoming an own property.
+    const everPresent = JSON.parse('{"__proto__": {"ringer": true}}') as Record<string, boolean>;
+
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Ringer', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 5000,
+        lastKnownMembers: {},
+        tracker: { everPresent, firstSeen: {}, lastSeen: {} },
+      },
+    });
+
+    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Absent);
+  });
+
+  it('still calls someone late only well after the pull', () => {
+    // firstSeen is now a real sighting, so everyone at the pull is a few seconds after
+    // the start. Without the grace window the whole raid would read as late.
+    const atThePull = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Ontime', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: { ontime: true },
+        tracker: { everPresent: { ontime: true }, firstSeen: { ontime: 1030 } },
+      },
+    });
+    expect(atThePull.rows[0]!.bucket).toBe(AttendanceBucket.Present);
+
+    const anHourLate = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Tardy', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: { tardy: true },
+        tracker: { everPresent: { tardy: true }, firstSeen: { tardy: 4600 } },
+      },
+    });
+    expect(anHourLate.rows[0]!.bucket).toBe(AttendanceBucket.Late);
+  });
+});

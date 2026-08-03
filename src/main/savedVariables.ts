@@ -20,6 +20,14 @@ import { readSavedVariable, toArray } from './lua';
 /** Matches `leftEarlyGraceSeconds` in `Attendance.lua`. */
 const LEFT_EARLY_GRACE_SECONDS = 300;
 
+/**
+ * Matches `lateGraceSeconds` in `Attendance.lua`.
+ *
+ * `firstSeen` is a real sighting, so everyone at the pull is a few seconds after the
+ * session start. Without this window the whole raid reads as late.
+ */
+const LATE_GRACE_SECONDS = 300;
+
 /** Sign-up status codes as the roster export carries them. */
 const STATUS = { APPROVED: 1, WAITLISTED: 3, TENTATIVE: 5 } as const;
 
@@ -59,6 +67,43 @@ export class NoSessionError extends Error {
     super(message);
     this.name = 'NoSessionError';
   }
+}
+
+/**
+ * Lowercase a character name the way the addon does — byte-wise ASCII only.
+ *
+ * WoW's Lua 5.1 `string.lower` is C `tolower` per byte under the C locale: it maps A–Z
+ * and leaves every high byte alone. Names are UTF-8, so the addon writes its tracker keys
+ * with the non-ASCII bytes untouched — `Ómen` stays `Ómen`.
+ *
+ * JavaScript's `toLowerCase()` does full Unicode folding and would produce `ómen`, which
+ * matches nothing the addon wrote. Every accented raider — Ómen, Ánduin, Bjørn, Müller,
+ * and every raider on a Cyrillic realm — then looked like a no-show, silently, with a
+ * perfectly well-formed row and no warning anywhere.
+ *
+ * So we deliberately reproduce the addon's narrower behaviour rather than the "correct"
+ * one. The two must agree; being right on our own is worse than being bug-compatible.
+ */
+function addonLower(name: string): string {
+  let out = '';
+  for (const char of name) {
+    const code = char.charCodeAt(0);
+    out += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 32) : char;
+  }
+  return out;
+}
+
+/**
+ * Read a key from a table wasmoon built, without inheriting from Object.prototype.
+ *
+ * wasmoon returns plain `{}` objects, so `everPresent['constructor']` is truthy for a
+ * raider legitimately named Constructor — an approved no-show credited as present. And a
+ * `["__proto__"]` key in the file replaces the object's prototype outright, which would
+ * let a corrupt or crafted file forge presence for arbitrary names.
+ */
+function ownValue(table: Record<string, unknown> | undefined, key: string): unknown {
+  if (!table) return undefined;
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 }
 
 /** Unix seconds → Date, tolerating the field being absent or nonsense. */
@@ -107,9 +152,10 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
       continue;
     }
 
-    const key = name.toLowerCase();
-    const first = firstSeen[key];
-    const last = lastSeen[key];
+    // Must match how the addon built its keys, not how JS would prefer to.
+    const key = addonLower(name);
+    const first = ownValue(firstSeen, key) as number | undefined;
+    const last = ownValue(lastSeen, key) as number | undefined;
 
     const row = (bucket: AttendanceBucket): AttendanceRow => ({
       name,
@@ -119,13 +165,19 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
       lastSeen: toDate(last)?.toISOString() ?? null,
     });
 
-    if (Object.prototype.hasOwnProperty.call(inRaid, key)) {
+    if (ownValue(inRaid, key) !== undefined) {
       // Still in the group when the addon last looked.
-      rows.push(row(first && startedAt && first > startedAt ? AttendanceBucket.Late : AttendanceBucket.Present));
+      rows.push(
+        row(
+          first && startedAt && first - startedAt >= LATE_GRACE_SECONDS
+            ? AttendanceBucket.Late
+            : AttendanceBucket.Present,
+        ),
+      );
       continue;
     }
 
-    if (everPresent[key]) {
+    if (ownValue(everPresent, key)) {
       // Was here, then wasn't. Only call that leaving early if they went well before
       // the end — otherwise it is just the raid breaking up.
       rows.push(

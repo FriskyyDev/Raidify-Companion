@@ -45,7 +45,12 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#191c22',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      // .mjs, not .js: package.json declares "type": "module", so electron-vite emits
+      // the preload as ESM with that extension. Getting this wrong does not throw
+      // anywhere visible — the preload simply fails to load, `window.companion` is
+      // undefined, and the window renders its static shell and then does nothing
+      // forever. Packaging still succeeds, which is why CI never caught it.
+      preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
