@@ -34,6 +34,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # Actually start the app. Every other check here was green while it was completely
+      # dead — the preload filename did not match what the build emitted, so the renderer
+      # had no bridge and the window just sat there. Nothing that stops short of
+      # launching it can catch that.
+      - name: Smoke (launch the app)
+        run: npm run smoke
+
       # Packaging is where this project actually breaks — a build that compiles but
       # produces an installer nobody can run is the failure mode worth catching on
       # every PR, not on tag day.

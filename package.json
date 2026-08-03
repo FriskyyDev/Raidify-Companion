@@ -13,9 +13,10 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "npm run build && electron-builder --win --ia32 --publish never",
-    "release": "npm run build && electron-builder --win --ia32 --publish always",
-    "schema:pull": "node scripts/pull-schema.mjs"
+    "package": "npm run build && npm run smoke && electron-builder --win --ia32 --publish never",
+    "release": "npm run build && npm run smoke && electron-builder --win --ia32 --publish always",
+    "schema:pull": "node scripts/pull-schema.mjs",
+    "smoke": "node scripts/smoke.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",

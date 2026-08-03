@@ -13,8 +13,22 @@ import { LuaFactory } from 'wasmoon';
  * silently, on someone else's raid night.
  */
 
-/** Guards against a truncated or hostile file wedging the app. */
-const EVAL_TIMEOUT_MS = 10_000;
+/**
+ * One factory for the process, not one per parse.
+ *
+ * `new LuaFactory()` instantiates a whole emscripten module — it reads and compiles
+ * glue.wasm — and `lua.global.close()` frees the Lua state but not the WASM instance,
+ * which only GC reclaims. Per-parse factories left ~130 MB of external memory churning,
+ * and this ships as a 32-bit build with roughly 2 GB of address space, where each
+ * abandoned WebAssembly.Memory holds address space until collected. Creating an engine
+ * from an existing factory is cheap; creating the factory is not.
+ */
+let factory: LuaFactory | null = null;
+
+function sharedFactory(): LuaFactory {
+  factory ??= new LuaFactory();
+  return factory;
+}
 
 /**
  * Read a Lua list as an array, whichever shape wasmoon happened to produce.
@@ -66,19 +80,22 @@ export async function readSavedVariable<T = unknown>(
   source: string,
   globalName: string,
 ): Promise<T | null> {
-  const factory = new LuaFactory();
-  const lua = await factory.createEngine({ openStandardLibs: false });
+  const lua = await sharedFactory().createEngine({ openStandardLibs: false });
 
   try {
-    const done = lua.doString(source);
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new LuaParseError('Timed out reading the saved variables file.')),
-        EVAL_TIMEOUT_MS,
-      ),
-    );
-
-    await Promise.race([done, timeout]);
+    // No Promise.race against a timer here, and that is deliberate.
+    //
+    // `doString` runs the chunk synchronously inside WASM and can only yield through
+    // coroutines, which do not exist with the standard library closed. So the JS thread
+    // is *inside* WASM for the whole evaluation and a timer callback cannot run — the
+    // previous timeout could never fire, and on the one path where it might have won it
+    // would have closed the Lua state while the VM was still using it.
+    //
+    // The real guards are structural: the sandbox has no stdlib, so there is no `os`,
+    // no `io` and no way to spin forever on anything but a hand-written loop, and a
+    // SavedVariables file is table literals. A genuine defence against a hostile file
+    // needs the parse off this thread entirely — see the note in README.
+    await lua.doString(source);
     return (lua.global.get(globalName) as T | undefined) ?? null;
   } catch (error) {
     if (error instanceof LuaParseError) throw error;

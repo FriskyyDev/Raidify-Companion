@@ -22,6 +22,9 @@ export interface WatcherEvents {
   onNights: (nights: ParsedNight[]) => void;
   /** Something went wrong reading it. Surfaced, never swallowed. */
   onError: (error: Error) => void;
+
+  /** The file read cleanly but held no usable night. Silence is a failure mode here. */
+  onEmpty?: () => void;
 }
 
 export interface WatcherOptions {
@@ -44,6 +47,16 @@ export class SavedVariablesWatcher {
   private reading = false;
   private missedWhileReading = false;
 
+  /**
+   * Set by stop(), and checked everywhere an event could still escape.
+   *
+   * Without it, stopping mid-read did not stop anything: the in-flight read still
+   * emitted, and its `finally` could arm a fresh timer that fired against a stopped
+   * watcher. Changing the watched folder in the UI therefore reported a night from the
+   * old path as well as the new one — the double-upload the whole design forbids.
+   */
+  private stopped = false;
+
   constructor(
     private readonly options: WatcherOptions,
     private readonly events: WatcherEvents,
@@ -51,6 +64,7 @@ export class SavedVariablesWatcher {
 
   start(): void {
     if (this.watcher) return;
+    this.stopped = false;
 
     const directory = dirname(this.options.path);
     const target = basename(this.options.path);
@@ -66,6 +80,7 @@ export class SavedVariablesWatcher {
   }
 
   stop(): void {
+    this.stopped = true;
     this.watcher?.close();
     this.watcher = null;
     if (this.timer) clearTimeout(this.timer);
@@ -78,11 +93,14 @@ export class SavedVariablesWatcher {
   }
 
   private schedule(): void {
+    if (this.stopped) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.read(), this.options.debounceMs ?? 1_500);
   }
 
   private async read(): Promise<void> {
+    if (this.stopped) return;
+
     // A flush landing mid-read must not be lost, and must not start a second read
     // against a file the first one is still consuming.
     if (this.reading) {
@@ -94,8 +112,21 @@ export class SavedVariablesWatcher {
     try {
       await waitForStableFile(this.options.path, this.options.stability);
       const nights = await readNights(this.options.path);
-      if (nights.length > 0) this.events.onNights(nights);
+
+      // Re-checked after the awaits: a stop that arrived while we were reading must
+      // still suppress the result, or a watcher the officer replaced keeps reporting.
+      if (this.stopped) return;
+
+      if (nights.length > 0) {
+        this.events.onNights(nights);
+      } else {
+        // Zero nights is not nothing happening. No session, no imported roster, no
+        // RaidifyDB global — all produced total silence before, which is the failure
+        // mode this app most needs to avoid.
+        this.events.onEmpty?.();
+      }
     } catch (error) {
+      if (this.stopped) return;
       this.events.onError(error instanceof Error ? error : new Error(String(error)));
     } finally {
       this.reading = false;

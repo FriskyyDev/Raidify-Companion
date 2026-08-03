@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { AttendanceBucket, type AttendanceRow } from '../shared/contract';
 import type { ParsedNight } from '../shared/types';
-import { readSavedVariable, toArray } from './lua';
+import { LuaParseError, readSavedVariable, toArray } from './lua';
 
 /**
  * Turning `RaidifyDB.lua` into a night we can upload.
@@ -214,19 +214,25 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
  * reading the backup is how the officer keeps the night instead of being told it is gone.
  */
 export async function readNights(path: string): Promise<ParsedNight[]> {
-  let source: string;
   let db: Record<string, unknown> | null;
 
+  // Read and parse are separated deliberately. The `.bak` is by definition the PREVIOUS
+  // flush, so falling back to it on an I/O error — EBUSY while WoW swaps the file, EACCES,
+  // a momentary ENOENT during the rename — would serve last week's raid as tonight's,
+  // with nothing marking it as stale. Only a *parse* failure justifies the backup, because
+  // that is the one case where the live file is genuinely damaged.
+  const source = await readFile(path, 'utf8');
+
   try {
-    source = await readFile(path, 'utf8');
     db = await readSavedVariable<Record<string, unknown>>(source, 'RaidifyDB');
-  } catch (primaryError) {
+  } catch (parseError) {
+    if (!(parseError instanceof LuaParseError)) throw parseError;
+
     const backup = `${path}.bak`;
     try {
-      source = await readFile(backup, 'utf8');
-      db = await readSavedVariable<Record<string, unknown>>(source, 'RaidifyDB');
+      db = await readSavedVariable<Record<string, unknown>>(await readFile(backup, 'utf8'), 'RaidifyDB');
     } catch {
-      throw primaryError;
+      throw parseError;
     }
   }
 
@@ -277,7 +283,19 @@ export async function waitForStableFile(
   let stable = 0;
 
   while (Date.now() < deadline) {
-    const size = await probeSize(path);
+    // ENOENT is expected here, not exceptional: WoW writes by rename, so the target is
+    // momentarily absent mid-swap. Treating it as a hard failure meant the read threw,
+    // nothing retried, and the night was not picked up until the next logout — possibly
+    // days later. A missing file is simply "still changing".
+    let size: number;
+    try {
+      size = await probeSize(path);
+    } catch {
+      lastSize = -1;
+      stable = 0;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
     stable = size === lastSize ? stable + 1 : 0;
     lastSize = size;
     if (stable >= requiredStableChecks) return;

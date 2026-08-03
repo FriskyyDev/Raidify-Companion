@@ -68,6 +68,16 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Tell the server this installation is done with its credential.
+   *
+   * Deleting the local copy is not disconnecting: without this the token stayed valid
+   * server-side forever, so signing out before selling a laptop left it working.
+   */
+  async signOut(signal?: AbortSignal): Promise<void> {
+    await this.request<void>('POST', '/api/v1/companion/sign-out', { signal });
+  }
+
   async uploadAttendance(
     guildId: string,
     body: AttendanceUploadRequest,

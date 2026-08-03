@@ -18,7 +18,22 @@ import { evaluateCompat, type CompatVerdict } from '../shared/contract';
  * whose whole job is reading one specific file.
  */
 
-const CLIENT_VERSION = app.getVersion();
+/**
+ * Our version, not Electron's.
+ *
+ * `app.getVersion()` returns the Electron runtime's version when running unpackaged, so
+ * in development the app reported v43 and sailed past any minimum-client check the
+ * server could state — the compat gate was untestable precisely where you would test it.
+ */
+const CLIENT_VERSION: string = app.isPackaged
+  ? app.getVersion()
+  : ((): string => {
+      try {
+        return require('../../package.json').version as string;
+      } catch {
+        return app.getVersion();
+      }
+    })();
 const API_BASE_URL = process.env.RAIDIFY_API_URL ?? undefined;
 
 let window: BrowserWindow | null = null;
@@ -26,7 +41,21 @@ let watcher: SavedVariablesWatcher | null = null;
 
 /** Tell the UI something happened, if it is there to hear it. */
 function emit(channel: string, payload: unknown): void {
-  window?.webContents.send(channel, payload);
+  // A read in flight when the officer closes the window would otherwise throw here,
+  // inside a catch block, and become an unhandled rejection in the main process.
+  if (window && !window.isDestroyed()) window.webContents.send(channel, payload);
+}
+
+/**
+ * Hand a URL to the OS, but only if it is a web link.
+ *
+ * `shell.openExternal` passes the string to the Windows shell, which happily accepts
+ * `file:`, UNC paths and registered handlers like `search-ms:` — several of which have
+ * been code-execution primitives. Unrestricted, this is the single line that turns "an
+ * attacker can render markup in the renderer" into "an attacker can launch a program".
+ */
+function openExternally(url: string): void {
+  if (/^https:\/\//i.test(url)) void shell.openExternal(url);
 }
 
 const api = new ApiClient({
@@ -50,26 +79,99 @@ function createWindow(): void {
       // anywhere visible — the preload simply fails to load, `window.companion` is
       // undefined, and the window renders its static shell and then does nothing
       // forever. Packaging still succeeds, which is why CI never caught it.
-      preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
+      preload: join(__dirname, '../preload/index.cjs'),
+      // The preload uses only contextBridge and ipcRenderer, both of which work
+      // sandboxed. Leaving it off meant any renderer-side flaw ran as the user with no
+      // escape required — a free defence being declined.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  window.on('ready-to-show', () => window?.show());
+  window.on('ready-to-show', () => {
+    // Smoke mode: prove the renderer can actually reach the app, then leave.
+    //
+    // This lives in the real main process rather than a test harness that mirrors it,
+    // because the bug it guards against WAS a mismatch between the real config and what
+    // the build emitted — a mirror would have drifted the same way and reported success.
+    // Ten lines behind an env var, in exchange for the one check that would have caught
+    // shipping an app that could not do anything.
+    if (process.env.RAIDIFY_SMOKE === '1') {
+      void runSmokeCheck(window!);
+      return;
+    }
+
+    window?.show();
+  });
+  window.on('closed', () => {
+    window = null;
+  });
 
   // Nothing in this app should ever open a second window, and a link that tries is
-  // either a mistake or something worse. Send them to the real browser instead.
+  // either a mistake or something worse. Send them to the real browser instead —
+  // but only if it is a web link.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternally(url);
     return { action: 'deny' };
+  });
+
+  // setWindowOpenHandler covers window.open and target=_blank; it does NOT cover
+  // top-level navigation via location.href. Without this, a renderer flaw could point
+  // the window at a remote origin, which would then inherit `window.companion` and
+  // shed the CSP along with the local document.
+  window.webContents.on('will-navigate', (event, url) => {
+    const dev = process.env.ELECTRON_RENDERER_URL;
+    if (dev && url.startsWith(dev)) return;
+    event.preventDefault();
+    openExternally(url);
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     void window.loadFile(join(__dirname, '../renderer/index.html'));
+  }
+}
+
+/**
+ * Assert the bridge exists and that IPC round-trips, then exit.
+ *
+ * Checks a real `invoke` rather than just the presence of functions: a preload that
+ * loads but whose handlers are missing looks identical from the renderer until something
+ * is called.
+ */
+async function runSmokeCheck(target: BrowserWindow): Promise<void> {
+  const expected = [
+    'appInfo', 'checkCompat', 'authStatus', 'signOut', 'signIn',
+    'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch',
+    'onNights', 'onWatchError',
+  ];
+
+  try {
+    const report = await target.webContents.executeJavaScript(
+      `(async () => {
+         const bridge = window.companion;
+         if (!bridge) return { ok: false, reason: 'window.companion is undefined' };
+         const missing = ${JSON.stringify(expected)}.filter((n) => typeof bridge[n] !== 'function');
+         if (missing.length) return { ok: false, reason: 'missing: ' + missing.join(', ') };
+         const info = await bridge.appInfo();
+         if (!info || typeof info.version !== 'string') return { ok: false, reason: 'appInfo did not round-trip' };
+         return { ok: true, version: info.version };
+       })()`,
+    );
+
+    if (!report?.ok) {
+      console.error(`SMOKE FAIL: ${report?.reason ?? 'unknown'}`);
+      app.exit(1);
+      return;
+    }
+
+    console.log(`SMOKE OK: bridge exposes ${expected.length} calls, appInfo returned v${report.version}`);
+    app.exit(0);
+  } catch (error) {
+    console.error(`SMOKE FAIL: ${error instanceof Error ? error.message : String(error)}`);
+    app.exit(1);
   }
 }
 
@@ -96,7 +198,16 @@ ipcMain.handle('compat:check', async (): Promise<CompatVerdict> => {
 });
 
 ipcMain.handle('auth:status', () => ({ signedIn: loadToken() !== null }));
-ipcMain.handle('auth:signOut', () => {
+ipcMain.handle('auth:signOut', async () => {
+  // Revoke server-side first, while we still hold the credential. If the network is
+  // down we still clear locally — the officer asked to sign out and must not be stuck
+  // signed in — but then the token lives until it expires, which is why it now does.
+  try {
+    await api.signOut();
+  } catch {
+    /* offline, or already revoked from the web. Clearing locally either way. */
+  }
+
   clearToken();
   return { signedIn: false };
 });
