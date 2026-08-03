@@ -33,8 +33,9 @@ describe('readNights', () => {
     expect(bucketOf(night.rows, 'Bailed')).toBe(AttendanceBucket.LeftEarly);
     // Approved, never seen.
     expect(bucketOf(night.rows, 'Noshow')).toBe(AttendanceBucket.Absent);
-    // Waitlisted and never got in — a bench, emphatically not a no-show.
-    expect(bucketOf(night.rows, 'Benchwarmer')).toBe(AttendanceBucket.Benched);
+    // Waitlisted and never seen, with no officer mark. NOT a bench: inferring one from
+    // a sign-up is what made "sign up waitlisted, go to bed" a full-credit night.
+    expect(bucketOf(night.rows, 'Benchwarmer')).toBe(AttendanceBucket.Unresolved);
     // Tentative and never showed.
     expect(bucketOf(night.rows, 'Maybeperson')).toBe(AttendanceBucket.Excused);
 
@@ -277,9 +278,10 @@ describe('archived nights', () => {
       },
     });
 
-    // Waitlisted and never seen — a bench, taken from the roster it was handed.
+    // Taken from the roster it was handed, and unresolved rather than benched — no
+    // officer marked this one.
     expect(night.rows[0]!.name).toBe('Oldraider');
-    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Benched);
+    expect(night.rows[0]!.bucket).toBe(AttendanceBucket.Unresolved);
   });
 });
 
@@ -325,5 +327,61 @@ describe('stale nights', () => {
     // dropping it silently would be the same silence this app keeps having to fix.
     const night = nightEndedDaysAgo(150);
     expect(night.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe('officer bench marks', () => {
+  it('reports a marked bench with who marked it and when', () => {
+    // The mark is what makes a bench admissible at all — the server refuses one it
+    // cannot attribute, because otherwise a waitlisted sign-up would earn full credit.
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Kaya', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: {},
+        tracker: { everPresent: {}, firstSeen: {}, lastSeen: {} },
+        benchMarks: {
+          kaya: { name: 'Kaya', markedBy: 'Torvald', markedAt: 1800, route: 'invite' },
+        },
+      },
+    });
+
+    const row = night.rows[0]!;
+    expect(row.bucket).toBe(AttendanceBucket.Benched);
+    expect(row.markedBy).toBe('Torvald');
+    expect(row.markRoute).toBe('invite');
+    expect(row.markedAt).toBe(new Date(1800 * 1000).toISOString());
+  });
+
+  it('keeps a sweep mark distinguishable from an invite-time one', () => {
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Kaya', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: {},
+        tracker: { everPresent: {} },
+        benchMarks: { kaya: { markedBy: 'Torvald', markedAt: 8800, route: 'sweep' } },
+      },
+    });
+
+    expect(night.rows[0]!.markRoute).toBe('sweep');
+  });
+
+  it('does not invent a mark for someone the addon merely did not see', () => {
+    const night = bucketNight('X - Y', {
+      importedData: { currentRoster: [{ name: 'Kaya', status: 1 }] },
+      attendanceSession: {
+        startedAt: 1000,
+        endedAt: 9000,
+        lastKnownMembers: {},
+        tracker: { everPresent: {} },
+      },
+    });
+
+    const row = night.rows[0]!;
+    expect(row.bucket).toBe(AttendanceBucket.Absent);
+    expect(row.markedBy ?? null).toBeNull();
   });
 });

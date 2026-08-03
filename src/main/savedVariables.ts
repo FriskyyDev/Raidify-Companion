@@ -52,11 +52,20 @@ interface Tracker {
   lastSeen?: Record<string, number>;
 }
 
+interface BenchMark {
+  name?: string;
+  markedBy?: string;
+  markedAt?: number;
+  route?: string;
+}
+
 interface AttendanceSession {
   startedAt?: number;
   endedAt?: number;
   tracker?: Tracker;
   lastKnownMembers?: Record<string, unknown>;
+  /** Officer-marked benches, keyed the same way the tracker keys names. */
+  benchMarks?: Record<string, BenchMark>;
 }
 
 interface ImportedData {
@@ -158,6 +167,7 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
   const firstSeen = tracker.firstSeen ?? {};
   const lastSeen = tracker.lastSeen ?? {};
   const inRaid = session.lastKnownMembers ?? {};
+  const benchMarks = session.benchMarks ?? {};
 
   const startedAt = session.startedAt;
   // The Lua falls back to "now" for left-early detection on a session still running.
@@ -210,11 +220,27 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
       continue;
     }
 
-    // Never seen. Which of the three that means depends on what they signed up as, and
-    // the distinction is the whole point: a raider asked to sit did everything right.
-    if (status === STATUS.WAITLISTED) rows.push(row(AttendanceBucket.Benched));
-    else if (status === STATUS.TENTATIVE) rows.push(row(AttendanceBucket.Excused));
-    else rows.push(row(AttendanceBucket.Absent));
+    // Never seen. An officer's mark is the only thing that makes this a bench — the
+    // addon cannot see why somebody was absent, and inferring it from a waitlisted
+    // sign-up is what made "sign up, go to bed" a full-credit night.
+    const mark = ownValue(benchMarks, key) as BenchMark | undefined;
+    if (mark) {
+      rows.push({
+        ...row(AttendanceBucket.Benched),
+        markedBy: mark.markedBy ?? null,
+        markedAt: toDate(mark.markedAt)?.toISOString() ?? null,
+        markRoute: mark.route === 'sweep' ? 'sweep' : 'invite',
+      });
+    } else if (status === STATUS.TENTATIVE) {
+      rows.push(row(AttendanceBucket.Excused));
+    } else if (status === STATUS.WAITLISTED) {
+      // Waitlisted and never seen, with nobody saying why. Absent would be a lie and
+      // benched would be a gift, so it goes up as neither — the server counts an
+      // unresolved night for no one and surfaces it for an officer to close.
+      rows.push(row(AttendanceBucket.Unresolved));
+    } else {
+      rows.push(row(AttendanceBucket.Absent));
+    }
   }
 
   return {

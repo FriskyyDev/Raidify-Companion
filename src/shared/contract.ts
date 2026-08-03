@@ -24,6 +24,15 @@ export enum AttendanceBucket {
   Absent = 3,
   Benched = 4,
   Excused = 5,
+  /**
+   * Signed up, never seen, and no officer said why.
+   *
+   * Distinct from Excused on purpose: excused means somebody told us in advance, this
+   * means nobody knows. Both are refused by the server, but only one of them is a claim
+   * about the raider — and reporting "we don't know" as a claim is how a benched raider
+   * ends up looking like a no-show.
+   */
+  Unresolved = 6,
 }
 
 export interface AttendanceRow {
@@ -32,6 +41,17 @@ export interface AttendanceRow {
   realm?: string | null;
   firstSeen?: string | null;
   lastSeen?: string | null;
+
+  /**
+   * Who marked this, when a human did, and how.
+   *
+   * A bench is only a bench because an officer decided it. The server refuses one it
+   * cannot attribute — otherwise signing up waitlisted and going to bed would earn full
+   * attendance credit — so these three fields are what turn a bucket into a decision.
+   */
+  markedBy?: string | null;
+  markedAt?: string | null;
+  markRoute?: 'invite' | 'sweep' | null;
 }
 
 export interface AttendanceUploadRequest {
