@@ -1,0 +1,694 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Raidify.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/auth/companion/approve": {
+      "post": {
+        "tags": [
+          "CompanionAuth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCompanionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCompanionRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCompanionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveCompanionResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveCompanionResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveCompanionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/companion/token": {
+      "post": {
+        "tags": [
+          "CompanionAuth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionTokenRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionTokenRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionTokenResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionTokenResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionTokenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/companion-tokens": {
+      "get": {
+        "tags": [
+          "CompanionAuth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionTokenDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionTokenDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionTokenDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/companion-tokens/{tokenId}": {
+      "delete": {
+        "tags": [
+          "CompanionAuth"
+        ],
+        "parameters": [
+          {
+            "name": "tokenId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/companion/sign-out": {
+      "post": {
+        "tags": [
+          "CompanionAuth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/companion/compat": {
+      "get": {
+        "tags": [
+          "Companion"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionCompatDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionCompatDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionCompatDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companion/guilds": {
+      "get": {
+        "tags": [
+          "Companion"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionGuildDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionGuildDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanionGuildDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/guilds/{guildId}/companion/attendance": {
+      "post": {
+        "tags": [
+          "Companion"
+        ],
+        "parameters": [
+          {
+            "name": "guildId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionAttendanceUploadRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionAttendanceUploadRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanionAttendanceUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionAttendanceUploadResult"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionAttendanceUploadResult"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanionAttendanceUploadResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApproveCompanionRequest": {
+        "required": [
+          "codeChallenge",
+          "redirectPort"
+        ],
+        "type": "object",
+        "properties": {
+          "codeChallenge": {
+            "type": "string"
+          },
+          "redirectPort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "label": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "default": "S256"
+          }
+        }
+      },
+      "ApproveCompanionResponse": {
+        "required": [
+          "code",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CompanionAttendanceBucket": {
+        "type": "integer"
+      },
+      "CompanionAttendanceRow": {
+        "required": [
+          "name",
+          "bucket"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/CompanionAttendanceBucket"
+          },
+          "realm": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "firstSeen": {
+            "type": "string",
+            "format": "date-time",
+            "default": null,
+            "nullable": true
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time",
+            "default": null,
+            "nullable": true
+          },
+          "markedBy": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "markedAt": {
+            "type": "string",
+            "format": "date-time",
+            "default": null,
+            "nullable": true
+          },
+          "markRoute": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          }
+        }
+      },
+      "CompanionAttendanceRowResult": {
+        "required": [
+          "name",
+          "bucket",
+          "applied",
+          "skipped"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/CompanionAttendanceBucket"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CompanionAttendanceUploadRequest": {
+        "required": [
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanionAttendanceRow"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "default": null,
+            "nullable": true
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time",
+            "default": null,
+            "nullable": true
+          },
+          "raidIdHint": {
+            "type": "string",
+            "format": "uuid",
+            "default": null,
+            "nullable": true
+          },
+          "clientVersion": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "addonVersion": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "dryRun": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "CompanionAttendanceUploadResult": {
+        "required": [
+          "dryRun",
+          "match",
+          "raidId",
+          "raidTitle",
+          "eventKey",
+          "occurredAt",
+          "rowsReceived",
+          "recorded",
+          "updated",
+          "unchanged",
+          "unmatchedRaiders",
+          "rows",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "match": {
+            "$ref": "#/components/schemas/CompanionRaidMatch"
+          },
+          "raidId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "raidTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventKey": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rowsReceived": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recorded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unchanged": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unmatchedRaiders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanionAttendanceRowResult"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CompanionCompatDto": {
+        "required": [
+          "minimumClientVersion",
+          "latestClientVersion",
+          "minimumAddonVersion",
+          "payloadVersion",
+          "uploadEnabled",
+          "downloadUrl",
+          "notice"
+        ],
+        "type": "object",
+        "properties": {
+          "minimumClientVersion": {
+            "type": "string"
+          },
+          "latestClientVersion": {
+            "type": "string"
+          },
+          "minimumAddonVersion": {
+            "type": "string"
+          },
+          "payloadVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "uploadEnabled": {
+            "type": "boolean"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "notice": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CompanionGuildDto": {
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "gameVersion",
+          "avatarUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "gameVersion": {
+            "$ref": "#/components/schemas/GameVersion"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CompanionRaidMatch": {
+        "type": "integer"
+      },
+      "CompanionTokenDto": {
+        "required": [
+          "id",
+          "label",
+          "createdAt",
+          "lastUsedAt",
+          "lastClientVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastClientVersion": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CompanionTokenRequest": {
+        "required": [
+          "code",
+          "codeVerifier"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "codeVerifier": {
+            "type": "string"
+          }
+        }
+      },
+      "CompanionTokenResponse": {
+        "required": [
+          "token",
+          "tokenId",
+          "label",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GameVersion": {
+        "type": "integer"
+      }
+    }
+  }
+}

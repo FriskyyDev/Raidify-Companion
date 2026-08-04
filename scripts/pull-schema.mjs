@@ -41,13 +41,58 @@ if (!document) {
   process.exit(1);
 }
 
-// Pretty-printed and sorted so the diff is readable — the whole point is reviewing it.
-await writeFile(target, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
-console.log(`wrote ${target}`);
-
 const companionPaths = Object.keys(document.paths ?? {}).filter((p) => p.includes('companion'));
-console.log(
-  companionPaths.length
-    ? `companion routes:\n  ${companionPaths.join('\n  ')}`
-    : 'WARNING: no companion routes in this document.',
-);
+if (!companionPaths.length) {
+  console.error('No companion routes in this document — refusing to write a reference without them.');
+  process.exit(1);
+}
+
+/**
+ * Only the companion's own corner of the API.
+ *
+ * The full document is 248 paths and 328 schemas — every admin route, every internal DTO,
+ * the whole shape of Raidify. This repo may be made public so that anyone worried about
+ * an unsigned binary can read what it does, and a complete map of the private API is
+ * exactly the kind of detail that must not travel with it.
+ *
+ * Narrowing costs nothing: the point of this file is noticing a change to the eight
+ * endpoints the companion speaks to, and the other 240 could not produce a diff worth
+ * reading anyway.
+ */
+const reference = {
+  openapi: document.openapi,
+  info: { title: document.info?.title, version: document.info?.version },
+  paths: Object.fromEntries(companionPaths.map((p) => [p, document.paths[p]])),
+  components: { schemas: collectSchemas(document, companionPaths) },
+};
+
+await writeFile(target, `${JSON.stringify(reference, null, 2)}\n`, 'utf8');
+console.log(`wrote ${target}`);
+console.log(`companion routes:\n  ${companionPaths.join('\n  ')}`);
+console.log(`schemas kept: ${Object.keys(reference.components.schemas).length}`);
+
+/** Every schema those paths reach, following $ref transitively. */
+function collectSchemas(doc, paths) {
+  const all = doc.components?.schemas ?? {};
+  const kept = {};
+  const queue = paths.flatMap((p) => refsIn(doc.paths[p]));
+
+  while (queue.length) {
+    const name = queue.pop();
+    if (!all[name] || kept[name]) continue;
+    kept[name] = all[name];
+    queue.push(...refsIn(all[name]));
+  }
+
+  // Sorted, so a schema being added does not reshuffle the whole file and bury the change.
+  return Object.fromEntries(Object.keys(kept).sort().map((k) => [k, kept[k]]));
+}
+
+function refsIn(node) {
+  if (node === null || typeof node !== 'object') return [];
+  if (Array.isArray(node)) return node.flatMap(refsIn);
+
+  return Object.entries(node).flatMap(([key, value]) =>
+    key === '$ref' && typeof value === 'string' ? [value.split('/').pop()] : refsIn(value),
+  );
+}
