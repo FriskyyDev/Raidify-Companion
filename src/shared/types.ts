@@ -47,3 +47,41 @@ export interface ParsedNight {
 
   rows: AttendanceRow[];
 }
+
+export interface Settings {
+  /** Which guild this machine reports for. Null until setup is done. */
+  guildId: string | null;
+  guildName: string | null;
+  /** The `RaidifyDB.lua` we watch. */
+  savedVariablesPath: string | null;
+  /**
+   * The `World of Warcraft` folder it was found under.
+   *
+   * Stored so the path can be re-discovered on the next launch rather than trusted. A
+   * path is only ever read after this app has found it itself; a string sitting in a JSON
+   * file is not that, and the difference matters for a value that becomes a file read and
+   * a Lua evaluation.
+   */
+  installPath: string | null;
+  /** Start watching as soon as the app opens, rather than waiting to be told. */
+  autoWatch: boolean;
+  /**
+   * Nights already sent from this machine, newest last.
+   *
+   * Not a correctness mechanism — the server upserts, so a second send of the same night
+   * changes nothing. This is so the list stops asking. Every flush of the saved-variables
+   * file re-reads every session in it, and an app that offers the same finished night at
+   * every launch until the officer manually clears it teaches them to ignore the list,
+   * which is the one thing it must not do.
+   */
+  uploaded: UploadedNight[];
+}
+
+export interface UploadedNight {
+  /** `characterKey|startedAt` — see `nightKey`. */
+  key: string;
+  uploadedAt: string;
+  raidTitle: string | null;
+  recorded: number;
+  updated: number;
+}

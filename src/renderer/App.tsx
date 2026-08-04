@@ -1,5 +1,9 @@
-import { useEffect, useState } from 'react';
-import type { CompatVerdict } from '../shared/contract';
+import { useCallback, useEffect, useState } from 'react';
+import type { CompanionGuild, CompatVerdict } from '../shared/contract';
+import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import { nightKey } from '../shared/nightKey';
+import { NightCard } from './components/NightCard';
+import { SetupPanel } from './components/SetupPanel';
 import { StatusBanner } from './components/StatusBanner';
 
 interface AppInfo {
@@ -11,23 +15,85 @@ interface AppInfo {
 /**
  * The shell.
  *
- * v0's UI is a real deliverable rather than a tray menu, so the frame it will grow into
- * is here from the start: a status line the officer can read at a glance, and room below
- * it for setup and upload history. What is not here yet is marked as such — an empty
- * panel that pretends to work is worse than one that says what it is waiting for.
+ * Answer three setup questions once, then this window has one job: show the raid nights
+ * sitting in the saved-variables file and let the officer send one. It never sends on its
+ * own — see NightCard for why.
  */
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [compat, setCompat] = useState<CompatVerdict | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [guilds, setGuilds] = useState<CompanionGuild[] | null>(null);
+  const [installs, setInstalls] = useState<SavedVariablesCandidate[] | null>(null);
+  const [watchingPath, setWatchingPath] = useState<string | null>(null);
+  const [nights, setNights] = useState<ParsedNight[]>([]);
+  const [watchError, setWatchError] = useState<string | null>(null);
+  /** When the file was last read and found to hold no raid session. */
+  const [lastEmptyRead, setLastEmptyRead] = useState<string | null>(null);
+
+  // The guild list needs a working sign-in, and sign-in state changes at runtime. Keeping
+  // the fetch in one place stops it being fired twice by two callers that both mean "we
+  // are signed in now".
+  const loadGuilds = useCallback(async () => {
+    try {
+      setGuilds(await window.companion.listGuilds());
+    } catch {
+      // Offline, or the token expired. The banner already says the server is unreachable;
+      // a second error here would be the same news twice.
+      setGuilds([]);
+    }
+  }, []);
 
   useEffect(() => {
     void (async () => {
       setInfo(await window.companion.appInfo());
-      setSignedIn((await window.companion.authStatus()).signedIn);
+      setSettings(await window.companion.getSettings());
+
+      const auth = await window.companion.authStatus();
+      setSignedIn(auth.signedIn);
+
       setCompat(await window.companion.checkCompat());
+
+      if (auth.signedIn) {
+        void loadGuilds();
+        // Pick the file back up from last launch, and watch it again if that is what the
+        // officer asked for.
+        setWatchingPath((await window.companion.resume()).path);
+      }
     })();
+  }, [loadGuilds]);
+
+  // Subscribed once, for the life of the window. A flush landing while the officer reads
+  // is the normal case — they alt-tab out of the game and the file arrives.
+  useEffect(() => {
+    const stopNights = window.companion.onNights((incoming) => {
+      setNights(incoming);
+      setLastEmptyRead(null);
+      setWatchError(null);
+    });
+    const stopEmpty = window.companion.onEmptyRead((info) => {
+      // A later read finding nothing means the file was rewritten without a session in
+      // it, so the nights we were showing are gone too. Saying so beats leaving stale
+      // cards on screen that no longer exist on disk.
+      setNights([]);
+      setLastEmptyRead(info.at);
+      setWatchError(null);
+    });
+    const stopErrors = window.companion.onWatchError((error) => setWatchError(error.message));
+    return () => {
+      stopNights();
+      stopEmpty();
+      stopErrors();
+    };
   }, []);
+
+  const sent = new Map((settings?.uploaded ?? []).map((u) => [u.key, u]));
+
+  // Newest first: the night just finished is the one the officer opened the app for.
+  const ordered = [...nights].sort((a, b) => time(b.startedAt) - time(a.startedAt));
+
+  const uploadsBlocked = compat !== null && compat.kind !== 'ok';
 
   return (
     <div className="flex h-full flex-col">
@@ -46,31 +112,110 @@ export function App() {
       <main className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
         <StatusBanner compat={compat} />
 
-        <section className="rounded border border-[var(--border)] bg-[var(--card)] p-5">
-          <h2 className="font-medium">Setup</h2>
-          <ol className="mt-3 space-y-2 text-sm text-[var(--muted)]">
-            <li>{signedIn ? '✓ Signed in' : '1 · Sign in to Raidify'}</li>
-            <li>2 · Choose which guild this machine reports for</li>
-            <li>3 · Point at your World of Warcraft folder</li>
-          </ol>
-          <p className="mt-4 text-xs text-[var(--muted)]">
-            Not wired up yet — sign-in, guild picker and folder picker land next.
-          </p>
-          {info && !info.canRememberSignIn && (
-            <p className="mt-2 text-xs text-[var(--warning)]">
-              This system has no secure credential store, so a sign-in cannot be remembered
-              between launches.
-            </p>
-          )}
-        </section>
+        <SetupPanel
+          settings={settings}
+          signedIn={signedIn}
+          canRememberSignIn={info?.canRememberSignIn ?? true}
+          guilds={guilds}
+          installs={installs}
+          watchingPath={watchingPath}
+          onSignIn={async () => {
+            await window.companion.signIn();
+            setSignedIn(true);
+            await loadGuilds();
+          }}
+          onSignOut={async () => {
+            await window.companion.signOut();
+            setSignedIn(false);
+            setGuilds(null);
+          }}
+          onChooseGuild={async (guild) => {
+            setSettings(
+              await window.companion.saveSettings({ guildId: guild.id, guildName: guild.name }),
+            );
+          }}
+          onDetect={async () => setInstalls(await window.companion.detectInstalls())}
+          onBrowse={async () => setInstalls(await window.companion.browseForInstall())}
+          onChooseInstall={async (candidate) => {
+            setSettings(
+              await window.companion.saveSettings({
+                savedVariablesPath: candidate.path,
+                installPath: candidate.installPath,
+              }),
+            );
+            setWatchingPath((await window.companion.watch(candidate.path)).path);
+          }}
+        />
 
-        <section className="rounded border border-[var(--border)] bg-[var(--card)] p-5">
-          <h2 className="font-medium">Recent uploads</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Nothing yet. Finished raid nights will appear here with what was sent.
+        {watchError && (
+          <p className="rounded border-l-4 border-[var(--warning)] bg-[var(--card)] px-5 py-4 text-sm text-[var(--warning)]">
+            Could not read the saved-variables file: {watchError}
           </p>
+        )}
+
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium">Raid nights</h2>
+
+          {!watchingPath ? (
+            <Empty>Finish setup and your raid nights will appear here.</Empty>
+          ) : ordered.length === 0 ? (
+            <Empty>
+              {lastEmptyRead ? (
+                <>
+                  Read your saved-variables file at{' '}
+                  {new Date(lastEmptyRead).toLocaleTimeString()} and found no raid session in
+                  it. Start one in game with <code className="selectable">/rf start</code>, and
+                  it will appear here after you log out or type{' '}
+                  <code className="selectable">/reload</code>.
+                </>
+              ) : (
+                <>
+                  Nothing yet. A raid night shows up here once you have logged out or typed{' '}
+                  <code className="selectable">/reload</code> — the game holds the file in
+                  memory until then, so it is not missing, just not written yet.
+                </>
+              )}
+            </Empty>
+          ) : uploadsBlocked ? (
+            <Empty>
+              {ordered.length} night{ordered.length === 1 ? '' : 's'} ready, held until Raidify
+              is accepting uploads again. Nothing is lost.
+            </Empty>
+          ) : (
+            ordered.map((night) => {
+              const key = nightKey(night.characterKey, night.startedAt);
+              return (
+                <NightCard
+                  key={key}
+                  night={night}
+                  alreadySent={sent.get(key)}
+                  onUpload={async (target, dryRun) => {
+                    const result = await window.companion.upload(target, dryRun);
+                    // The main process is what recorded the send; re-read rather than guess
+                    // at what it wrote, so the "Sent" mark and the file cannot disagree.
+                    if (!dryRun) setSettings(await window.companion.getSettings());
+                    return result;
+                  }}
+                />
+              );
+            })
+          )}
         </section>
       </main>
     </div>
   );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded border border-dashed border-[var(--border)] px-5 py-6 text-sm text-[var(--muted)]">
+      {children}
+    </p>
+  );
+}
+
+function time(value: Date | string | null): number {
+  if (!value) return 0;
+  const ms = (value instanceof Date ? value : new Date(value)).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 }

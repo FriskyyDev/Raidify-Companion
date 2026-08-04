@@ -5,9 +5,16 @@ import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
 import { canPersist, clearToken, loadToken, saveToken } from './secrets';
 import { readNights } from './savedVariables';
-import type { ParsedNight, SavedVariablesCandidate } from '../shared/types';
+import { loadSettings, rememberUpload, saveSettings } from './settings';
+import { nightKey } from '../shared/nightKey';
+import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
 import { SavedVariablesWatcher } from './watcher';
-import { evaluateCompat, type CompatVerdict } from '../shared/contract';
+import {
+  evaluateCompat,
+  type AttendanceUploadResult,
+  type CompanionGuild,
+  type CompatVerdict,
+} from '../shared/contract';
 
 /**
  * Main process.
@@ -136,17 +143,19 @@ function createWindow(): void {
 }
 
 /**
- * Assert the bridge exists and that IPC round-trips, then exit.
+ * Assert the bridge exists, that IPC round-trips, and that the window drew something.
  *
  * Checks a real `invoke` rather than just the presence of functions: a preload that
  * loads but whose handlers are missing looks identical from the renderer until something
- * is called.
+ * is called. And it checks the rendered text, because a bridge can be perfect while the
+ * UI throws on mount — that combination is a blank window that packages and ships.
  */
 async function runSmokeCheck(target: BrowserWindow): Promise<void> {
   const expected = [
     'appInfo', 'checkCompat', 'authStatus', 'signOut', 'signIn',
-    'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch',
-    'onNights', 'onWatchError',
+    'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch', 'resume',
+    'getSettings', 'saveSettings', 'listGuilds', 'upload',
+    'onNights', 'onEmptyRead', 'onWatchError',
   ];
 
   try {
@@ -158,6 +167,21 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
          if (missing.length) return { ok: false, reason: 'missing: ' + missing.join(', ') };
          const info = await bridge.appInfo();
          if (!info || typeof info.version !== 'string') return { ok: false, reason: 'appInfo did not round-trip' };
+
+         // A working bridge and a blank window is a real combination: a thrown error in
+         // App() leaves an empty root and every check above still passes. Poll rather
+         // than sample once — first paint can beat the first render by a frame.
+         const deadline = Date.now() + 5000;
+         let text = '';
+         while (Date.now() < deadline) {
+           text = document.body.innerText || '';
+           if (text.includes('Raidify Companion')) break;
+           await new Promise((r) => setTimeout(r, 100));
+         }
+         if (!text.includes('Raidify Companion')) {
+           return { ok: false, reason: 'the window rendered nothing (body: ' + JSON.stringify(text.slice(0, 120)) + ')' };
+         }
+
          return { ok: true, version: info.version };
        })()`,
     );
@@ -168,7 +192,7 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
       return;
     }
 
-    console.log(`SMOKE OK: bridge exposes ${expected.length} calls, appInfo returned v${report.version}`);
+    console.log(`SMOKE OK: bridge exposes ${expected.length} calls, appInfo returned v${report.version}, and the window rendered.`);
     app.exit(0);
   } catch (error) {
     console.error(`SMOKE FAIL: ${error instanceof Error ? error.message : String(error)}`);
@@ -283,6 +307,29 @@ function remember(candidates: SavedVariablesCandidate[]): SavedVariablesCandidat
   return candidates;
 }
 
+/**
+ * Re-earn the stored path, rather than trusting it.
+ *
+ * The remembered file is only usable once this process has found it again the same way it
+ * found it originally — by scanning the install folder it came from. That keeps one rule
+ * with no exceptions: nothing is read that discovery did not produce. A settings file
+ * carried over from another machine, or edited by hand, gets no privileges from having
+ * been written down.
+ */
+async function restoreDiscovered(): Promise<string | null> {
+  const { savedVariablesPath, installPath } = loadSettings();
+  if (!savedVariablesPath || !installPath) return null;
+
+  try {
+    const candidates = remember(await findSavedVariables(installPath));
+    return candidates.some((c) => c.path === savedVariablesPath) ? savedVariablesPath : null;
+  } catch {
+    // The drive is gone, or the folder moved. Not an error worth a dialog on launch —
+    // the officer will be asked to point at it again.
+    return null;
+  }
+}
+
 function requireDiscovered(path: unknown): string {
   if (typeof path !== 'string' || !path) throw new Error('No saved-variables path supplied.');
   if (!discovered.has(path)) {
@@ -303,13 +350,22 @@ ipcMain.handle('wow:read', (_event, path: unknown): Promise<ParsedNight[]> =>
  */
 ipcMain.handle('wow:watch', async (_event, rawPath: unknown) => {
   const path = requireDiscovered(rawPath);
+  await startWatching(path);
+  return { watching: true, path };
+});
 
+async function startWatching(path: string): Promise<void> {
   watcher?.stop();
   watcher = new SavedVariablesWatcher(
     { path },
     {
       onNights: (nights) => emit('wow:nights', nights),
       onError: (error) => emit('wow:error', { message: error.message }),
+      // A clean read that found nothing is news. Without this the UI cannot tell "we read
+      // the file and there are no raid sessions in it" from "we have never read it", and
+      // the officer stares at the same empty panel in both cases — one of which needs
+      // them to do something and one of which does not.
+      onEmpty: () => emit('wow:empty', { at: new Date().toISOString() }),
     },
   );
   watcher.start();
@@ -317,14 +373,111 @@ ipcMain.handle('wow:watch', async (_event, rawPath: unknown) => {
   // Read once immediately: the interesting flush may already have happened while the
   // app was closed, and a companion that only notices future raids is half a companion.
   await watcher.readNow();
-  return { watching: true, path };
-});
+}
 
 ipcMain.handle('wow:unwatch', () => {
   watcher?.stop();
   watcher = null;
   return { watching: false };
 });
+
+// ── settings, the guild, and sending ────────────────────────────────────────────
+
+ipcMain.handle('settings:get', (): Settings => loadSettings());
+
+/**
+ * Pick up where the last launch left off.
+ *
+ * One call rather than three, because the renderer should not be able to get the order
+ * wrong: re-discover the remembered file, and start watching it if that is what the
+ * officer asked for. A null path means the setup question needs asking again.
+ */
+ipcMain.handle('wow:resume', async (): Promise<{ path: string | null; watching: boolean }> => {
+  const path = await restoreDiscovered();
+  if (!path) return { path: null, watching: false };
+  if (!loadSettings().autoWatch) return { path, watching: false };
+
+  await startWatching(path);
+  return { path, watching: true };
+});
+
+/**
+ * Save the setup answers.
+ *
+ * Only the three the UI is allowed to set. The upload history is written by the upload
+ * itself — letting the renderer edit it would mean a UI bug could mark an unsent night as
+ * sent, which is the one lie this app must never tell.
+ */
+ipcMain.handle('settings:set', (_event, patch: unknown): Settings => {
+  const input = (patch ?? {}) as Partial<Settings>;
+  const next: Partial<Settings> = {};
+
+  if (typeof input.guildId === 'string' || input.guildId === null) next.guildId = input.guildId;
+  if (typeof input.guildName === 'string' || input.guildName === null) {
+    next.guildName = input.guildName;
+  }
+  if (typeof input.autoWatch === 'boolean') next.autoWatch = input.autoWatch;
+  if (input.savedVariablesPath === null) {
+    next.savedVariablesPath = null;
+    next.installPath = null;
+  } else if (input.savedVariablesPath !== undefined) {
+    // Same rule as reading: a path we did not discover ourselves is not a path we store
+    // and then hand to a file read on the next launch.
+    next.savedVariablesPath = requireDiscovered(input.savedVariablesPath);
+    next.installPath = typeof input.installPath === 'string' ? input.installPath : null;
+  }
+
+  return saveSettings(next);
+});
+
+ipcMain.handle('guild:list', (): Promise<CompanionGuild[]> => api.guilds());
+
+/**
+ * Send one night.
+ *
+ * `dryRun` runs the identical server path and writes nothing, so the preview the officer
+ * approves is the work that then happens — not a second implementation of it that can
+ * disagree. A dry run is never recorded as an upload.
+ */
+ipcMain.handle(
+  'attendance:upload',
+  async (_event, request: unknown): Promise<AttendanceUploadResult> => {
+    const { night, dryRun } = (request ?? {}) as { night?: ParsedNight; dryRun?: boolean };
+    if (!night) throw new Error('No night to upload.');
+
+    const { guildId } = loadSettings();
+    if (!guildId) throw new Error('Choose which guild this machine reports for first.');
+
+    const result = await api.uploadAttendance(guildId, {
+      rows: night.rows,
+      // Dates cross IPC as strings; the API wants strings anyway. Normalising here rather
+      // than in the renderer keeps the one place that talks to the server the one place
+      // that has to know the wire shape.
+      startedAt: asIso(night.startedAt),
+      endedAt: asIso(night.endedAt),
+      raidIdHint: night.raidIdHint,
+      clientVersion: CLIENT_VERSION,
+      dryRun: dryRun === true,
+    });
+
+    if (!dryRun) {
+      rememberUpload({
+        key: nightKey(night.characterKey, night.startedAt),
+        uploadedAt: new Date().toISOString(),
+        raidTitle: result.raidTitle ?? night.raidTitle,
+        recorded: result.recorded,
+        updated: result.updated,
+      });
+    }
+
+    return result;
+  },
+);
+
+function asIso(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
 
 // ── lifecycle ───────────────────────────────────────────────────────────────────
 

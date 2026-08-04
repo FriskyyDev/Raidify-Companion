@@ -1,15 +1,19 @@
 import type {
   AttendanceUploadRequest,
   AttendanceUploadResult,
+  CompanionGuild,
   CompatResponse,
 } from '../shared/contract';
 
 /**
  * Everything that leaves this machine goes through here.
  *
- * Deliberately small: two calls, both against the public API as an authenticated user.
- * If this file ever grows a third kind of request, that is worth a second look — the
- * consent screen promises attendance rows, not a general-purpose channel.
+ * Deliberately small, and each call earns its place: find out if this build is still
+ * supported, trade a code for a token, hand the token back, ask which guilds this
+ * sign-in may write to, and upload one night. Nothing here reads a guild's data.
+ *
+ * Anything added is worth a second look — the consent screen promises attendance rows,
+ * not a general-purpose channel into the officer's account.
  */
 
 const DEFAULT_BASE_URL = 'https://www.raidify.app';
@@ -76,6 +80,17 @@ export class ApiClient {
    */
   async signOut(signal?: AbortSignal): Promise<void> {
     await this.request<void>('POST', '/api/v1/companion/sign-out', { signal });
+  }
+
+  /**
+   * Which guilds this sign-in may upload for.
+   *
+   * Filtered server-side by the same permission the upload checks, so anything this
+   * returns is safe to offer — the app never has to reason about permissions itself, and
+   * cannot get that reasoning subtly wrong on a raid night.
+   */
+  async guilds(signal?: AbortSignal): Promise<CompanionGuild[]> {
+    return this.request<CompanionGuild[]>('GET', '/api/v1/companion/guilds', { signal });
   }
 
   async uploadAttendance(

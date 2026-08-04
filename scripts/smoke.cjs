@@ -11,7 +11,7 @@
  * would have drifted exactly the way the original bug did and reported success.
  */
 const { spawn } = require('node:child_process');
-const { existsSync } = require('node:fs');
+const { existsSync, readdirSync, statSync } = require('node:fs');
 const { join } = require('node:path');
 
 const root = join(__dirname, '..');
@@ -20,6 +20,29 @@ const entry = join(root, 'out', 'main', 'index.js');
 if (!existsSync(entry)) {
   console.error(`SMOKE FAIL: ${entry} does not exist — run npm run build first.`);
   process.exit(1);
+}
+
+/**
+ * Refuse to smoke-test yesterday's build.
+ *
+ * `npm run build` typechecks first, so a type error leaves `out/` untouched and this
+ * script then happily starts the previous build and reports success — a green smoke test
+ * for code that does not compile. That is the same shape as the bug this file exists to
+ * catch: every check passing while nothing has actually verified what would ship.
+ */
+const newestSource = newestMtime(join(root, 'src'));
+if (newestSource > statSync(entry).mtimeMs) {
+  console.error('SMOKE FAIL: out/ is older than src/ — the build did not run, or it failed.');
+  process.exit(1);
+}
+
+function newestMtime(dir) {
+  let newest = 0;
+  for (const item of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, item.name);
+    newest = Math.max(newest, item.isDirectory() ? newestMtime(path) : statSync(path).mtimeMs);
+  }
+  return newest;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

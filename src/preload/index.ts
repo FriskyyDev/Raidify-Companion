@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ParsedNight, SavedVariablesCandidate } from '../shared/types';
-import type { CompatVerdict } from '../shared/contract';
+import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type {
+  AttendanceUploadResult,
+  CompanionGuild,
+  CompatVerdict,
+} from '../shared/contract';
 
 /**
  * The only way the UI can reach anything real.
@@ -25,12 +29,32 @@ const bridge = {
   watch: (path: string): Promise<{ watching: boolean; path: string }> =>
     ipcRenderer.invoke('wow:watch', path),
   unwatch: (): Promise<{ watching: boolean }> => ipcRenderer.invoke('wow:unwatch'),
+  /** Re-find the remembered file and, if asked for, start watching it. */
+  resume: (): Promise<{ path: string | null; watching: boolean }> =>
+    ipcRenderer.invoke('wow:resume'),
+
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
+  saveSettings: (patch: Partial<Settings>): Promise<Settings> =>
+    ipcRenderer.invoke('settings:set', patch),
+
+  listGuilds: (): Promise<CompanionGuild[]> => ipcRenderer.invoke('guild:list'),
+
+  /** `dryRun` previews on the real server path and writes nothing. */
+  upload: (night: ParsedNight, dryRun: boolean): Promise<AttendanceUploadResult> =>
+    ipcRenderer.invoke('attendance:upload', { night, dryRun }),
 
   /** Fires whenever a flush produced a readable night. Returns an unsubscribe. */
   onNights: (handler: (nights: ParsedNight[]) => void): (() => void) => {
     const listener = (_event: unknown, nights: ParsedNight[]) => handler(nights);
     ipcRenderer.on('wow:nights', listener);
     return () => ipcRenderer.removeListener('wow:nights', listener);
+  },
+
+  /** The file read cleanly and held no raid session. Fires instead of `onNights`. */
+  onEmptyRead: (handler: (info: { at: string }) => void): (() => void) => {
+    const listener = (_event: unknown, info: { at: string }) => handler(info);
+    ipcRenderer.on('wow:empty', listener);
+    return () => ipcRenderer.removeListener('wow:empty', listener);
   },
 
   onWatchError: (handler: (error: { message: string }) => void): (() => void) => {
