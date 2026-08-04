@@ -6,3 +6,6 @@ dist/
 .env
 .env.*
 !.env.example
+
+# tsc incremental caches — machine-local, and they churn on every build.
+*.tsbuildinfo

@@ -91,6 +91,21 @@ export interface AttendanceUploadResult {
   warnings: string[];
 }
 
+/**
+ * A guild this machine may report attendance for.
+ *
+ * The saved-variables file says which characters raided; it never says under whose
+ * banner. So the officer picks once, from the guilds the server says they can already
+ * manage raids in.
+ */
+export interface CompanionGuild {
+  id: string;
+  name: string;
+  slug: string;
+  gameVersion: number;
+  avatarUrl: string | null;
+}
+
 export interface CompatResponse {
   minimumClientVersion: string;
   latestClientVersion: string;
