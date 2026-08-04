@@ -54,10 +54,42 @@ npm install
 npm run dev        # electron-vite, hot reload
 npm test           # vitest
 npm run typecheck
+npm run smoke      # starts the real app, asserts the bridge works and the window drew
 npm run package    # unsigned installer into dist/
 ```
 
 Point at a local API with `RAIDIFY_API_URL=http://localhost:5001 npm run dev`.
+
+### Running against a real API
+
+`src/main/live.test.ts` signs in for real, exchanges a code for a token, lists guilds and
+uploads a night. It skips unless pointed at an API, because a suite that needs a database
+running is a suite people stop running.
+
+```bash
+# in the raidify repo
+docker compose up -d
+dotnet run --project apps/api/src/Raidify.Api --urls http://localhost:5001
+
+# here
+RAIDIFY_E2E_API_URL=http://localhost:5001 npm test
+```
+
+Needs `AllowTestLogin`, which `appsettings.Development.json` already sets. It cannot run
+against production — test-login 404s there and the first step fails loudly rather than
+quietly touching real data.
+
+Worth running after any change to `src/shared/contract.ts`. Every other test in this repo
+can pass while the app cannot sign in; this is the one that would notice. It found the
+204 sign-out bug on its first run.
+
+### Refreshing the API reference
+
+`npm run schema:pull [baseUrl]` rewrites `reference/openapi.json`, then read the diff.
+
+It keeps only the eight companion endpoints and the schemas they reach — 14 of the API's
+328. The full document is a complete map of the private API, and this repo may be made
+public so anyone wary of an unsigned binary can read what it does.
 
 ## Releasing
 
@@ -87,6 +119,12 @@ only knows who it *saw*, so uploading would silently turn every no-show into not
 
 ## Not built yet
 
-The sign-in flow proper — device-code pairing against the web app. `src/main/index.ts`
-has the IPC shape so the boundary is visible; the browser handoff is next. After that,
-the UI: guided first-run, upload history, and the consent screen.
+**The Lua parse runs on the main process.** A forty-man file parses fast enough that
+nobody notices, but it is still the UI thread doing it, and the file only grows.
+
+**Nothing is uploaded automatically.** Deliberate for now — see `NightCard.tsx` for why
+the officer is the one who decides a session was the guild's raid. An "always send
+finished nights for this guild" setting is reasonable once the matching has earned trust.
+
+**Linux `basic_text` detection.** `safeStorage` can silently fall back to plaintext on
+Linux; `canPersist()` reports availability but not which backend answered.

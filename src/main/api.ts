@@ -143,6 +143,13 @@ export class ApiClient {
       throw new ApiError(message, response.status);
     }
 
+    // 204 is a success with no body, and sign-out returns one. Parsing it threw
+    // "Unexpected end of JSON input" *after* the server had already revoked the token, so
+    // a sign-out that worked perfectly surfaced as a failure — and the caller's catch
+    // block then reported it as "offline, or already revoked", which was the opposite of
+    // what had happened.
+    if (response.status === 204) return undefined as T;
+
     return (await response.json()) as T;
   }
 }
