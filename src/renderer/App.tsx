@@ -9,6 +9,7 @@ import { StatusBanner } from './components/StatusBanner';
 interface AppInfo {
   version: string;
   canRememberSignIn: boolean;
+  signInMemoryBlocker: string | null;
   platform: string;
 }
 
@@ -116,6 +117,7 @@ export function App() {
           settings={settings}
           signedIn={signedIn}
           canRememberSignIn={info?.canRememberSignIn ?? true}
+          signInMemoryBlocker={info?.signInMemoryBlocker ?? null}
           guilds={guilds}
           installs={installs}
           watchingPath={watchingPath}

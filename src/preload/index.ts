@@ -14,7 +14,12 @@ import type {
  * describing something the officer asked for.
  */
 const bridge = {
-  appInfo: (): Promise<{ version: string; canRememberSignIn: boolean; platform: string }> =>
+  appInfo: (): Promise<{
+    version: string;
+    canRememberSignIn: boolean;
+    signInMemoryBlocker: string | null;
+    platform: string;
+  }> =>
     ipcRenderer.invoke('app:info'),
 
   checkCompat: (): Promise<CompatVerdict> => ipcRenderer.invoke('compat:check'),

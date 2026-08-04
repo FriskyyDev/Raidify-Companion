@@ -126,5 +126,16 @@ nobody notices, but it is still the UI thread doing it, and the file only grows.
 the officer is the one who decides a session was the guild's raid. An "always send
 finished nights for this guild" setting is reasonable once the matching has earned trust.
 
-**Linux `basic_text` detection.** `safeStorage` can silently fall back to plaintext on
-Linux; `canPersist()` reports availability but not which backend answered.
+## Where the sign-in is kept
+
+`safeStorage` — DPAPI on Windows, Keychain on macOS, libsecret or KWallet on Linux. When
+no real store is available the token is not written at all; the officer signs in each
+launch instead.
+
+The Linux case is the one worth stating. With no keyring daemon running, Electron falls
+back to a backend named `basic_text` that scrambles with a key hardcoded in Chromium —
+recoverable by anyone who can read the file — and `isEncryptionAvailable()` still answers
+**true** for it. So availability alone is not the check: on Linux the selected backend is
+read as well, `basic_text` counts as no store, and a credentials file left by an earlier
+build that trusted the flag is deleted on the next launch rather than left lying around.
+The setup panel says which daemon to start.

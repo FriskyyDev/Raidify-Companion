@@ -16,6 +16,7 @@ export function SetupPanel({
   settings,
   signedIn,
   canRememberSignIn,
+  signInMemoryBlocker,
   guilds,
   installs,
   watchingPath,
@@ -29,6 +30,7 @@ export function SetupPanel({
   settings: Settings | null;
   signedIn: boolean;
   canRememberSignIn: boolean;
+  signInMemoryBlocker: string | null;
   guilds: CompanionGuild[] | null;
   installs: SavedVariablesCandidate[] | null;
   watchingPath: string | null;
@@ -120,8 +122,8 @@ export function SetupPanel({
               </p>
               {!canRememberSignIn && (
                 <p className="mt-2 text-xs text-[var(--warning)]">
-                  This system has no secure credential store, so the sign-in cannot be
-                  remembered between launches.
+                  {signInMemoryBlocker ??
+                    'This system has no secure credential store, so the sign-in cannot be remembered between launches.'}
                 </p>
               )}
             </>

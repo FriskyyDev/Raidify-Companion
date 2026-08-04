@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { ApiClient } from './api';
 import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
-import { canPersist, clearToken, loadToken, saveToken } from './secrets';
+import { canPersist, clearToken, loadToken, persistenceBlocker, saveToken } from './secrets';
 import { readNights } from './savedVariables';
 import { loadSettings, rememberUpload, saveSettings } from './settings';
 import { nightKey } from '../shared/nightKey';
@@ -208,6 +208,9 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
 ipcMain.handle('app:info', () => ({
   version: CLIENT_VERSION,
   canRememberSignIn: canPersist(),
+  // Why not, when not. "No secure credential store" is accurate and unhelpful on a Linux
+  // desktop whose only missing piece is a keyring daemon nobody has had to think about.
+  signInMemoryBlocker: persistenceBlocker(),
   platform: process.platform,
 }));
 
