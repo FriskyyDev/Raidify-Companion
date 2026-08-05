@@ -1,6 +1,15 @@
 @import 'tailwindcss';
 
 /*
+ * Inter, bundled into the binary.
+ *
+ * The renderer's CSP is `default-src 'self'` with `connect-src 'none'`, so a font CDN is
+ * not a preference here — it is blocked. Bundling is the only option that keeps this app
+ * looking like the web app, which is the whole point of copying the tokens.
+ */
+@import '@fontsource-variable/inter';
+
+/*
  * Raidify theme — tokens copied from `apps/web/src/index.css`.
  *
  * Copied, not shared. Sharing React components across repos means publishing and
@@ -12,31 +21,46 @@
  */
 
 @theme {
-  --color-gold-300: oklch(0.85 0.15 85);
-  --color-gold-400: oklch(0.8 0.18 80);
-  --color-gold-500: oklch(0.75 0.15 75);
-  --color-gold-600: oklch(0.65 0.14 70);
-
-  --color-surface-50: oklch(0.3 0.02 250);
-  --color-surface-100: oklch(0.25 0.02 250);
-  --color-surface-200: oklch(0.2 0.02 250);
-  --color-surface-300: oklch(0.17 0.02 250);
-  --color-surface-900: oklch(0.12 0.02 250);
-  --color-surface-950: oklch(0.1 0.02 250);
+  /*
+   * Surfaces, mapped onto the same scale names the web app uses so the two stay in step.
+   * Cold neutral at hue 265, chroma <= 0.008.
+   */
+  --color-surface-50: oklch(0.265 0.008 265);
+  --color-surface-100: oklch(0.232 0.007 265);
+  --color-surface-200: oklch(0.196 0.006 265);
+  --color-surface-300: oklch(0.172 0.005 265);
+  --color-surface-900: oklch(0.150 0.005 265);
+  --color-surface-950: oklch(0.120 0.005 265);
 }
 
 :root {
-  --background: oklch(0.17 0.02 250);
-  --foreground: oklch(0.98 0.01 250);
-  --card: oklch(0.2 0.02 250);
-  --border: oklch(0.35 0.02 250);
-  --muted: oklch(0.65 0.02 250);
-  --primary: oklch(0.75 0.15 75);
-  --accent: oklch(0.75 0.15 195);
-  --success: oklch(0.7 0.18 145);
-  --warning: oklch(0.75 0.18 70);
-  --error: oklch(0.65 0.22 25);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --background: oklch(0.150 0.005 265);
+  --foreground: oklch(0.965 0.003 265);
+  --card: oklch(0.196 0.006 265);
+  --border: oklch(0.310 0.007 265);
+  --muted: oklch(0.620 0.007 265);
+
+  /*
+   * The primary action is white, not gold.
+   *
+   * Same reasoning as the web app: white has zero chroma, so it cannot be confused with
+   * anything the game owns, and it is the highest-contrast object on a near-black page.
+   * This app has no class colours in it today, but it will once it reports loot, and the
+   * time to not paint yourself into a corner is before that lands.
+   */
+  --primary: oklch(0.965 0.003 265);
+  --accent: oklch(0.720 0.070 215);
+
+  /* Under the chroma ceiling, same as the web tokens. */
+  --success: oklch(0.720 0.090 158);
+  --warning: oklch(0.760 0.090 75);
+  --error: oklch(0.630 0.100 22);
+
+  /*
+   * Inter is bundled rather than fetched. The renderer's CSP is `default-src 'self'` with
+   * `connect-src 'none'`, so a font CDN is not merely discouraged here — it is blocked.
+   */
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif;
 }
 
 html,

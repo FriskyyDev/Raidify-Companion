@@ -120,7 +120,7 @@ function createWindow(): void {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#191c22',
+    backgroundColor: '#14161c',
     webPreferences: {
       // .cjs, and it must stay that way: a sandboxed preload is not an ES module, and
       // electron.vite.config.ts forces CommonJS output to match. Getting this filename

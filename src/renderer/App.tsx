@@ -142,7 +142,7 @@ export function App() {
             <button
               type="button"
               className="rounded px-3 py-1.5 text-sm font-medium"
-              style={{ background: 'var(--accent)', color: '#191c22' }}
+              style={{ background: 'var(--accent)', color: '#14161c' }}
               onClick={() => void window.companion.installUpdate()}
             >
               Restart now
