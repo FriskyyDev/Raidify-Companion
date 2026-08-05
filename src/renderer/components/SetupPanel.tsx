@@ -18,7 +18,10 @@ export function SetupPanel({
   canRememberSignIn,
   signInMemoryBlocker,
   guilds,
+  guildsFailed,
+  onRetryGuilds,
   installs,
+  searchOutcome,
   watchingPath,
   onSignIn,
   onSignOut,
@@ -32,7 +35,12 @@ export function SetupPanel({
   canRememberSignIn: boolean;
   signInMemoryBlocker: string | null;
   guilds: CompanionGuild[] | null;
+  /** The list could not be fetched — not the same as the officer having no guilds. */
+  guildsFailed: boolean;
+  onRetryGuilds: () => Promise<void>;
   installs: SavedVariablesCandidate[] | null;
+  /** How the last search ended, so a cancel is not reported as a missing file. */
+  searchOutcome: 'cancelled' | 'none' | 'found' | null;
   watchingPath: string | null;
   onSignIn: () => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -133,6 +141,23 @@ export function SetupPanel({
         <Step index={2} title="Choose the guild this machine reports for" complete={guildChosen}>
           {!signedIn ? (
             <p className="text-sm text-[var(--muted)]">Sign in first.</p>
+          ) : guildsFailed ? (
+            // Distinct from an empty list on purpose. This is almost always a network
+            // blip or an expired sign-in, and reporting it as a permissions problem sent
+            // officers to a settings page to look for something that was never wrong.
+            <div className="space-y-2">
+              <p className="text-sm text-[var(--warning)]">
+                Couldn't reach Raidify to load your guilds. That is usually the connection
+                rather than anything about your account.
+              </p>
+              <Action
+                label="Try again"
+                busy={busy === 'guilds'}
+                disabled={busy !== null}
+                onClick={() => void attempt('guilds', onRetryGuilds)}
+                quiet
+              />
+            </div>
           ) : guilds === null ? (
             <p className="text-sm text-[var(--muted)]">Loading your guilds…</p>
           ) : guilds.length === 0 ? (
@@ -179,12 +204,16 @@ export function SetupPanel({
             />
           </div>
 
-          {installs !== null && installs.length === 0 && (
+          {/* Only when a search actually came back empty. Pressing Cancel on the folder
+              picker used to land here too, so changing your mind about a dialog was
+              reported as your addon never having run. */}
+          {searchOutcome === 'none' && (
             <p className="mt-3 text-sm text-[var(--warning)]">
-              No Raidify saved-variables file found. That file only appears after the addon
-              has run at least once and you have logged out or typed{' '}
-              <code className="selectable">/reload</code> — the game keeps it in memory until
-              then.
+              No Raidify saved-variables file in that folder. Either it is not your World of
+              Warcraft folder, or the addon has not written yet — that file only appears
+              after the addon has run at least once and you have logged out or typed{' '}
+              <code className="selectable">/reload</code>, because the game keeps it in
+              memory until then.
             </p>
           )}
 

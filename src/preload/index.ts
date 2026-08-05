@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type { BrowseResult, ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
 import type {
   AttendanceUploadResult,
   CompanionGuild,
@@ -29,7 +29,7 @@ const bridge = {
   signIn: (): Promise<{ signedIn: boolean; label: string }> => ipcRenderer.invoke('auth:signIn'),
 
   detectInstalls: (): Promise<SavedVariablesCandidate[]> => ipcRenderer.invoke('wow:autoDetect'),
-  browseForInstall: (): Promise<SavedVariablesCandidate[]> => ipcRenderer.invoke('wow:browse'),
+  browseForInstall: (): Promise<BrowseResult> => ipcRenderer.invoke('wow:browse'),
   readNights: (path: string): Promise<ParsedNight[]> => ipcRenderer.invoke('wow:read', path),
   watch: (path: string): Promise<{ watching: boolean; path: string }> =>
     ipcRenderer.invoke('wow:watch', path),
@@ -60,6 +60,16 @@ const bridge = {
     const listener = (_event: unknown, info: { at: string }) => handler(info);
     ipcRenderer.on('wow:empty', listener);
     return () => ipcRenderer.removeListener('wow:empty', listener);
+  },
+
+  updateStatus: (): Promise<{ version: string } | null> => ipcRenderer.invoke('update:status'),
+  installUpdate: (): Promise<{ restarting: boolean }> => ipcRenderer.invoke('update:install'),
+
+  /** An update finished downloading and a restart would land it. */
+  onUpdateReady: (handler: (info: { version: string }) => void): (() => void) => {
+    const listener = (_event: unknown, info: { version: string }) => handler(info);
+    ipcRenderer.on('update:ready', listener);
+    return () => ipcRenderer.removeListener('update:ready', listener);
   },
 
   onWatchError: (handler: (error: { message: string }) => void): (() => void) => {

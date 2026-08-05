@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { ApiClient } from './api';
 import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
@@ -7,7 +8,7 @@ import { canPersist, clearToken, loadToken, persistenceBlocker, saveToken } from
 import { readNights } from './savedVariables';
 import { loadSettings, rememberUpload, saveSettings } from './settings';
 import { nightKey } from '../shared/nightKey';
-import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type { BrowseResult, ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
 import { SavedVariablesWatcher } from './watcher';
 import {
   evaluateCompat,
@@ -45,6 +46,8 @@ const API_BASE_URL = process.env.RAIDIFY_API_URL ?? undefined;
 
 let window: BrowserWindow | null = null;
 let watcher: SavedVariablesWatcher | null = null;
+/** Set once an update has been downloaded and only a restart stands between us and it. */
+let updateReady: { version: string } | null = null;
 
 /** Tell the UI something happened, if it is there to hear it. */
 function emit(channel: string, payload: unknown): void {
@@ -70,6 +73,44 @@ const api = new ApiClient({
   clientVersion: CLIENT_VERSION,
   getToken: async () => loadToken(),
 });
+
+/**
+ * Keep this install able to update itself.
+ *
+ * The whole architecture leans on a server-controlled version floor —
+ * `minimumClientVersion`, `payloadVersion`, an upload kill switch — as the thing that
+ * makes shipping an unsigned binary to strangers defensible: if a build turns out to send
+ * bad data, Raidify refuses it and tells the officer to update. That bargain only holds
+ * if the officer *can*. `electron-updater` has been a dependency and the release pipeline
+ * has been publishing `latest.yml` this whole time, and nothing ever imported it — so
+ * pulling the lever would have bricked every install with a message and no door out.
+ *
+ * Deliberately quiet: it downloads in the background and tells the renderer when a
+ * restart would land it. Nothing is forced, because a raid night is the worst possible
+ * moment for an app to restart itself.
+ */
+function startUpdateChecks(): void {
+  // Unpackaged builds have no update feed and electron-updater throws if asked.
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+  // The officer chooses the moment. Installing on quit behind their back is how an app
+  // becomes something people close rather than leave open.
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = { version: info.version };
+    emit('update:ready', updateReady);
+  });
+
+  // Never fatal. A failed update check must not stop the app doing its actual job, and
+  // an officer with no network is the ordinary case, not an error worth a dialog.
+  autoUpdater.on('error', () => {});
+
+  void autoUpdater.checkForUpdates().catch(() => {});
+  // Six hours: this app is meant to stay open for weeks.
+  setInterval(() => void autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+}
 
 function createWindow(): void {
   window = new BrowserWindow({
@@ -155,7 +196,8 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
     'appInfo', 'checkCompat', 'authStatus', 'signOut', 'signIn',
     'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch', 'resume',
     'getSettings', 'saveSettings', 'listGuilds', 'upload',
-    'onNights', 'onEmptyRead', 'onWatchError',
+    'updateStatus', 'installUpdate',
+    'onNights', 'onEmptyRead', 'onWatchError', 'onUpdateReady',
   ];
 
   try {
@@ -213,6 +255,22 @@ ipcMain.handle('app:info', () => ({
   signInMemoryBlocker: persistenceBlocker(),
   platform: process.platform,
 }));
+
+/** Whether a downloaded update is sitting there waiting for a restart. */
+ipcMain.handle('update:status', () => updateReady);
+
+/**
+ * Restart into the update the officer has already downloaded.
+ *
+ * They pick the moment, which is the whole point — an app that restarts itself at 20:15
+ * on a Tuesday is an app that gets closed before raid.
+ */
+ipcMain.handle('update:install', () => {
+  if (!updateReady) return { restarting: false };
+  watcher?.stop();
+  autoUpdater.quitAndInstall();
+  return { restarting: true };
+});
 
 ipcMain.handle('compat:check', async (): Promise<CompatVerdict> => {
   try {
@@ -285,14 +343,22 @@ ipcMain.handle('wow:autoDetect', async (): Promise<SavedVariablesCandidate[]> =>
  * Auto-detection is a convenience and never the last word — people move installs, run
  * two of them, and keep an old one around.
  */
-ipcMain.handle('wow:browse', async (): Promise<SavedVariablesCandidate[]> => {
-  if (!window) return [];
+ipcMain.handle('wow:browse', async (): Promise<BrowseResult> => {
+  if (!window) return { outcome: 'cancelled' };
   const result = await dialog.showOpenDialog(window, {
     title: 'Find your World of Warcraft folder',
     properties: ['openDirectory'],
   });
   const chosen = result.filePaths[0];
-  return result.canceled || !chosen ? [] : remember(await findSavedVariables(chosen));
+
+  // Cancelling is not a failed search, and a folder with nothing in it is not a broken
+  // addon. Each says so on its own terms now.
+  if (result.canceled || !chosen) return { outcome: 'cancelled' };
+
+  const candidates = remember(await findSavedVariables(chosen));
+  return candidates.length > 0
+    ? { outcome: 'found', candidates }
+    : { outcome: 'none', searchedPath: chosen };
 });
 
 /**
@@ -497,6 +563,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     createWindow();
+    startUpdateChecks();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

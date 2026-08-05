@@ -22,6 +22,20 @@ export interface SavedVariablesCandidate {
   hasBackup: boolean;
 }
 
+/**
+ * What came back from asking the officer to point at their WoW folder.
+ *
+ * Discriminated rather than a bare array, because those are three different facts and the
+ * UI has three different things to say. Returning `[]` for all of them meant pressing
+ * Cancel rendered "No Raidify saved-variables file found — that file only appears after
+ * the addon has run at least once", which tells an officer their addon is broken because
+ * they changed their mind about a folder picker.
+ */
+export type BrowseResult =
+  | { outcome: 'cancelled' }
+  | { outcome: 'found'; candidates: SavedVariablesCandidate[] }
+  | { outcome: 'none'; searchedPath: string };
+
 export interface ParsedNight {
   /** AceDB character key, e.g. `Toon - Nightslayer`. */
   characterKey: string;

@@ -26,12 +26,18 @@ export function App() {
   const [signedIn, setSignedIn] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [guilds, setGuilds] = useState<CompanionGuild[] | null>(null);
+  /** The guild list could not be fetched — as opposed to being genuinely empty. */
+  const [guildsFailed, setGuildsFailed] = useState(false);
   const [installs, setInstalls] = useState<SavedVariablesCandidate[] | null>(null);
+  /** How the last folder search ended, so the UI can tell a cancel from an empty result. */
+  const [searchOutcome, setSearchOutcome] = useState<'cancelled' | 'none' | 'found' | null>(null);
   const [watchingPath, setWatchingPath] = useState<string | null>(null);
   const [nights, setNights] = useState<ParsedNight[]>([]);
   const [watchError, setWatchError] = useState<string | null>(null);
   /** When the file was last read and found to hold no raid session. */
   const [lastEmptyRead, setLastEmptyRead] = useState<string | null>(null);
+  /** A downloaded update waiting for the officer to choose a moment to restart. */
+  const [updateReady, setUpdateReady] = useState<{ version: string } | null>(null);
 
   // The guild list needs a working sign-in, and sign-in state changes at runtime. Keeping
   // the fetch in one place stops it being fired twice by two callers that both mean "we
@@ -39,10 +45,15 @@ export function App() {
   const loadGuilds = useCallback(async () => {
     try {
       setGuilds(await window.companion.listGuilds());
+      setGuildsFailed(false);
     } catch {
-      // Offline, or the token expired. The banner already says the server is unreachable;
-      // a second error here would be the same news twice.
-      setGuilds([]);
+      // An empty list and a failed request are different facts, and collapsing them here
+      // meant a network blip rendered as "none of your guilds let you manage raids" —
+      // a permissions verdict, delivered to an officer, pointing them at a settings page
+      // where they would find nothing wrong. Kept separate so the panel can say which
+      // one actually happened.
+      setGuilds(null);
+      setGuildsFailed(true);
     }
   }, []);
 
@@ -82,10 +93,14 @@ export function App() {
       setWatchError(null);
     });
     const stopErrors = window.companion.onWatchError((error) => setWatchError(error.message));
+    const stopUpdate = window.companion.onUpdateReady(setUpdateReady);
+    // An update can finish downloading before this window mounts.
+    void window.companion.updateStatus().then(setUpdateReady);
     return () => {
       stopNights();
       stopEmpty();
       stopErrors();
+      stopUpdate();
     };
   }, []);
 
@@ -113,13 +128,38 @@ export function App() {
       <main className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
         <StatusBanner compat={compat} />
 
+        {updateReady && (
+          // Offered, never forced. The officer picks the moment — an app that restarts
+          // itself at 20:15 on a Tuesday is an app that gets closed before raid.
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-l-4 border-[var(--accent)] bg-[var(--card)] px-5 py-4">
+            <div>
+              <p className="font-medium">Update ready</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Version {updateReady.version} is downloaded. Restarting takes a few seconds
+                and picks your file back up where it left off.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded px-3 py-1.5 text-sm font-medium"
+              style={{ background: 'var(--accent)', color: '#191c22' }}
+              onClick={() => void window.companion.installUpdate()}
+            >
+              Restart now
+            </button>
+          </div>
+        )}
+
         <SetupPanel
           settings={settings}
           signedIn={signedIn}
           canRememberSignIn={info?.canRememberSignIn ?? true}
           signInMemoryBlocker={info?.signInMemoryBlocker ?? null}
           guilds={guilds}
+          guildsFailed={guildsFailed}
+          onRetryGuilds={loadGuilds}
           installs={installs}
+          searchOutcome={searchOutcome}
           watchingPath={watchingPath}
           onSignIn={async () => {
             await window.companion.signIn();
@@ -137,7 +177,14 @@ export function App() {
             );
           }}
           onDetect={async () => setInstalls(await window.companion.detectInstalls())}
-          onBrowse={async () => setInstalls(await window.companion.browseForInstall())}
+          onBrowse={async () => {
+            const result = await window.companion.browseForInstall();
+            setSearchOutcome(result.outcome);
+            // A cancel leaves whatever was already on screen alone — the officer did not
+            // ask us to forget the installs we had found.
+            if (result.outcome === 'found') setInstalls(result.candidates);
+            else if (result.outcome === 'none') setInstalls([]);
+          }}
           onChooseInstall={async (candidate) => {
             setSettings(
               await window.companion.saveSettings({
