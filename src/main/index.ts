@@ -1,6 +1,19 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { autoUpdater } from 'electron-updater';
+/*
+ * electron-updater is CommonJS, and this package is `"type": "module"`.
+ *
+ * A named import compiles fine and then throws at runtime — Node cannot statically resolve
+ * named bindings from a CJS module, so the app died during startup with "does not provide an
+ * export named 'autoUpdater'" and never reached the point where it reports ready. The smoke
+ * test caught it; nothing before the smoke test could, because typecheck and bundling both
+ * succeed.
+ *
+ * Default-import the module object, then destructure. This is exactly what the runtime error
+ * suggests, and it is the documented interop for this package.
+ */
+import electronUpdater from 'electron-updater';
+const { autoUpdater } = electronUpdater;
 import { ApiClient } from './api';
 import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
