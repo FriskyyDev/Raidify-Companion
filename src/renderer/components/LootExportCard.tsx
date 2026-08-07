@@ -5,10 +5,11 @@ import type { LootSessionImportResult } from '../../shared/contract';
 /**
  * One exported loot night, waiting to be sent.
  *
- * Deliberately thinner than NightCard. An attendance night is a judgement the officer may
- * want to inspect row by row before it becomes a record; a loot session is a sealed string
- * the addon already produced. There is nothing here to adjudicate — the only real question
- * is "is this the night I meant", so the card answers that and gets out of the way.
+ * Thinner than NightCard, because the payload is a sealed string the addon already
+ * produced — there are no buckets to argue with here. But it is checked before it is sent,
+ * exactly as attendance is: the server still has to match every recipient to a character
+ * and every item to the catalog, and an award to a name it cannot place is silently not
+ * recorded. That is worth seeing before it becomes the guild's permanent record, not after.
  */
 export function LootExportCard({
   night,
@@ -20,20 +21,29 @@ export function LootExportCard({
   onUpload: (dryRun: boolean) => Promise<LootSessionImportResult>;
 }) {
   const [busy, setBusy] = useState<'preview' | 'send' | null>(null);
-  const [result, setResult] = useState<LootSessionImportResult | null>(null);
+  /** The last dry run. Sending is gated on having one — see the action row below. */
+  const [preview, setPreview] = useState<LootSessionImportResult | null>(null);
+  const [sent, setSent] = useState<LootSessionImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(dryRun: boolean) {
     setBusy(dryRun ? 'preview' : 'send');
     setError(null);
     try {
-      setResult(await onUpload(dryRun));
+      const outcome = await onUpload(dryRun);
+      if (dryRun) setPreview(outcome);
+      else setSent(outcome);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not go through.');
     } finally {
       setBusy(null);
     }
   }
+
+  const result = sent ?? preview;
+  /** Things the officer can actually go and fix before committing this to the record. */
+  const fixable =
+    (preview?.unmatchedRecipients.length ?? 0) + (preview?.unmatchedItems.length ?? 0) > 0;
 
   const when = night.endedAt ?? night.startedAt ?? night.exportedAt;
 
@@ -54,25 +64,6 @@ export function LootExportCard({
           {night.exportedAt && ` · exported ${night.exportedAt.toLocaleDateString()}`}
         </p>
       )}
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm"
-          disabled={disabled || busy !== null}
-          onClick={() => void run(true)}
-        >
-          {busy === 'preview' ? 'Checking…' : 'Check it first'}
-        </button>
-        <button
-          type="button"
-          className="rounded bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-[var(--background)] disabled:opacity-40"
-          disabled={disabled || busy !== null}
-          onClick={() => void run(false)}
-        >
-          {busy === 'send' ? 'Sending…' : 'Send to Raidify'}
-        </button>
-      </div>
 
       {error && <p className="mt-3 text-sm text-[var(--error)]">{error}</p>}
 
@@ -101,6 +92,62 @@ export function LootExportCard({
               {w}
             </p>
           ))}
+
+          {/*
+            Somewhere to go about it.
+
+            Every remedy lives on the website — linking a character, adding a pug as an
+            external raider. Naming the problem and stopping there leaves the officer to
+            hunt for the right page mid-raid, which is how a warning turns into a shrug.
+            The check can be re-run afterwards without re-reading the file.
+          */}
+          {fixable && !sent && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] hover:border-[var(--primary)]"
+                onClick={() => void window.companion.openInRaidify('loot-raiders')}
+              >
+                Fix on the website
+              </button>
+              <span className="text-xs">Then check again — nothing has been sent yet.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!sent && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="rounded border border-[var(--border)] px-4 py-2 text-sm hover:border-[var(--primary)] disabled:opacity-50"
+            disabled={disabled || busy !== null}
+            onClick={() => void run(true)}
+          >
+            {busy === 'preview' ? 'Checking…' : preview ? 'Check again' : 'Review'}
+          </button>
+
+          {/*
+            Gated on a review, exactly as attendance is.
+
+            Both write a permanent record a guild will argue from later, and the preview
+            runs the identical server path with the write turned off — so seeing it is not
+            a promise about the send, it is the send with nothing committed. Letting loot
+            go straight out while attendance had to be checked was two safety models for
+            one act.
+          */}
+          <button
+            type="button"
+            className="rounded bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--background)] disabled:opacity-40"
+            disabled={disabled || busy !== null || preview === null}
+            onClick={() => void run(false)}
+          >
+            {busy === 'send' ? 'Sending…' : 'Send to Raidify'}
+          </button>
+
+          {preview === null && busy === null && (
+            <span className="text-sm text-[var(--muted)]">Review it first.</span>
+          )}
         </div>
       )}
     </div>

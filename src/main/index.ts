@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 /*
@@ -145,7 +146,9 @@ function startUpdateChecks(): void {
 function createWindow(): void {
   window = new BrowserWindow({
     width: 980,
-    height: 720,
+    // Capture mode can ask for a taller window so a screenshot shows the whole app rather
+    // than the top of a scroll. Ignored in normal use.
+    height: Number(process.env.RAIDIFY_CAPTURE_HEIGHT) || 720,
     minWidth: 760,
     minHeight: 560,
     show: false,
@@ -178,6 +181,16 @@ function createWindow(): void {
     // shipping an app that could not do anything.
     if (process.env.RAIDIFY_SMOKE === '1') {
       void runSmokeCheck(window!);
+      return;
+    }
+
+    // Capture mode: render, photograph, leave.
+    //
+    // Same reasoning as smoke mode — this is the real main process, the real preload and
+    // the real renderer, so what comes out is the app rather than a mock of it. A
+    // screenshot taken any other way would be a picture of a harness.
+    if (process.env.RAIDIFY_CAPTURE) {
+      void runCapture(window!, process.env.RAIDIFY_CAPTURE);
       return;
     }
 
@@ -221,12 +234,87 @@ function createWindow(): void {
  * is called. And it checks the rendered text, because a bridge can be perfect while the
  * UI throws on mount — that combination is a blank window that packages and ships.
  */
+/**
+ * Photograph the window and exit. Dev only, driven by `npm run capture`.
+ *
+ * `RAIDIFY_CAPTURE` is the output path. Waits for the renderer to settle rather than
+ * sampling immediately: the app fetches guilds and reads the saved-variables file after
+ * first paint, so a capture taken on `ready-to-show` catches a loading state every time.
+ */
+async function runCapture(target: BrowserWindow, outPath: string): Promise<void> {
+  try {
+    target.show();
+
+    /*
+     * Wait for the UI to stop changing, rather than for any particular string.
+     *
+     * The first attempt polled for a marker and broke immediately, because the marker it
+     * checked for the *absence* of ("Loading your guilds") is also absent at first paint —
+     * so it photographed a half-loaded app every time. This app does several async things
+     * after first paint: a compat check, a guild fetch, a saved-variables read. Quiescence
+     * covers all of them without naming any.
+     *
+     * The window is deliberately long. The UI is perfectly still WHILE it waits, and
+     * reading the saved-variables file spins up a WASM Lua runtime the first time — so a
+     * short quiet period is indistinguishable from being finished, and a 600ms threshold
+     * reliably photographed the app just before its raid nights arrived.
+     */
+    await target.webContents.executeJavaScript(
+      `(async () => {
+         const deadline = Date.now() + 20000;
+         let previous = '';
+         let stableFor = 0;
+         const startedAt = Date.now();
+         while (Date.now() < deadline) {
+           await new Promise((r) => setTimeout(r, 200));
+           const now = document.body.innerText || '';
+           stableFor = now === previous ? stableFor + 1 : 0;
+           previous = now;
+           // ~2s of stillness, and never before 3s total.
+           if (stableFor >= 10 && now.length > 0 && Date.now() - startedAt > 3000) break;
+         }
+         await new Promise((r) => requestAnimationFrame(() => r(null)));
+       })()`,
+    );
+
+    /*
+     * Optionally click something before photographing.
+     *
+     * A capture of a screen nobody has touched only ever shows the resting state — the
+     * review results, which are the point of the gate, would never appear in one.
+     * `RAIDIFY_CAPTURE_CLICK` is button text to find and press, then settle again.
+     */
+    const clickText = process.env.RAIDIFY_CAPTURE_CLICK;
+    if (clickText) {
+      const clicked = await target.webContents.executeJavaScript(
+        `(async () => {
+           const wanted = ${JSON.stringify(clickText)};
+           const hits = Array.from(document.querySelectorAll('button'))
+             .filter((b) => (b.textContent || '').trim() === wanted && !b.disabled);
+           hits.forEach((b) => b.click());
+           await new Promise((r) => setTimeout(r, 4000));
+           return hits.length;
+         })()`,
+      );
+      console.log(`CAPTURE clicked ${clicked} x "${clickText}"`);
+    }
+
+    const image = await target.webContents.capturePage();
+    await writeFile(outPath, image.toPNG());
+    console.log(`CAPTURE OK: ${outPath}`);
+    app.exit(0);
+  } catch (error) {
+    console.error(`CAPTURE FAIL: ${error instanceof Error ? error.message : String(error)}`);
+    app.exit(1);
+  }
+}
+
 async function runSmokeCheck(target: BrowserWindow): Promise<void> {
   const expected = [
     'appInfo', 'checkCompat', 'authStatus', 'signOut', 'signIn',
     'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch', 'resume',
     'getSettings', 'saveSettings', 'listGuilds', 'upload',
-    'pendingLootExports', 'uploadLootSession',
+    'pendingLootExports', 'uploadLootSession', 'openInRaidify',
     'updateStatus', 'installUpdate',
     'onNights', 'onEmptyRead', 'onWatchError', 'onUpdateReady',
   ];
@@ -486,6 +574,37 @@ async function startWatching(path: string): Promise<void> {
   await watcher.readNow();
 }
 
+/**
+ * Open the page on the website that fixes what a check just complained about.
+ *
+ * The companion can only ever report a problem — every remedy (linking a character,
+ * adding a pug as an external raider, correcting an item) lives on the web. Naming the
+ * problem and then leaving the officer to go and find the right page themselves is half
+ * an answer, and the half that gets abandoned on a raid night.
+ *
+ * The renderer picks a TARGET, never a URL. Anything that lets a renderer hand this
+ * process a string to open is one renderer flaw away from launching something; a fixed
+ * set of destinations cannot be talked into a new one.
+ */
+ipcMain.handle('app:openInRaidify', (_event, target: unknown): void => {
+  const { guildId } = loadSettings();
+  if (!guildId) return;
+
+  const paths: Record<string, string> = {
+    roster: `/guild/${guildId}/members`,
+    'loot-raiders': `/guild/${guildId}/loot?tab=raiders`,
+    'loot-record': `/guild/${guildId}/loot?tab=ledger`,
+  };
+
+  const path = paths[String(target)];
+  if (!path) return;
+
+  // Not routed through `openExternally`, which refuses anything but https so a renderer
+  // cannot smuggle a `file:` or a shell handler through it. This URL is built here from a
+  // fixed list, so it is not renderer-supplied — and the dev web app is plain http.
+  void shell.openExternal(`${WEB_BASE_URL}${path}`);
+});
+
 ipcMain.handle('wow:unwatch', () => {
   watcher?.stop();
   watcher = null;
@@ -651,6 +770,32 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    /*
+     * Capture mode seeds itself BEFORE the first load.
+     *
+     * Both of these go through the app's own storage functions rather than being written
+     * by the script that spawns us, because only the app knows where its own userData is:
+     * run unpackaged, Electron uses %APPDATA%/Electron rather than the product name, so a
+     * script writing settings.json "where the app keeps it" wrote it somewhere the app
+     * never read and the capture showed an unconfigured app.
+     *
+     * Doing it after the window is up does not work either — storing the token and
+     * reloading raced the capture's own wait.
+     */
+    if (process.env.RAIDIFY_CAPTURE) {
+      if (process.env.RAIDIFY_CAPTURE_FRESH === '1') {
+        clearToken();
+        saveSettings({
+          guildId: null, guildName: null,
+          savedVariablesPath: null, lootSavedVariablesPath: null, installPath: null,
+        });
+      }
+      if (process.env.RAIDIFY_CAPTURE_TOKEN) saveToken(process.env.RAIDIFY_CAPTURE_TOKEN);
+      if (process.env.RAIDIFY_CAPTURE_SETTINGS) {
+        saveSettings(JSON.parse(process.env.RAIDIFY_CAPTURE_SETTINGS) as Partial<Settings>);
+      }
+    }
+
     createWindow();
     startUpdateChecks();
     app.on('activate', () => {

@@ -98,7 +98,7 @@ export function NightCard({
         <Note tone="success">
           {describeResult(sent)}
           {sent.unmatchedRaiders.length > 0 && (
-            <UnmatchedList names={sent.unmatchedRaiders} />
+            <UnmatchedList names={sent.unmatchedRaiders} sendable={false} />
           )}
         </Note>
       ) : (
@@ -112,12 +112,12 @@ export function NightCard({
                 </span>
               ))}
               {preview.unmatchedRaiders.length > 0 && (
-                <UnmatchedList names={preview.unmatchedRaiders} />
+                <UnmatchedList names={preview.unmatchedRaiders} sendable />
               )}
             </Note>
           )}
 
-          <div className="mt-4 flex gap-3">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
               className="rounded border border-[var(--border)] px-4 py-2 text-sm hover:border-[var(--primary)] disabled:opacity-50"
@@ -135,10 +135,21 @@ export function NightCard({
               className="rounded bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--background)] disabled:opacity-40"
               disabled={busy !== null || preview === null}
               onClick={() => void run(false)}
-              title={preview === null ? 'Review it first' : undefined}
             >
               {busy === 'send' ? 'Sending…' : 'Send to Raidify'}
             </button>
+
+            {/*
+              Say why it is greyed out, in the page.
+
+              The reason used to live in a `title` attribute, which means it existed only
+              for someone who already suspected there was a reason and hovered to find it.
+              A disabled primary action with no visible explanation reads as a broken app,
+              and this is the main button on the main screen.
+            */}
+            {preview === null && busy === null && (
+              <span className="text-sm text-[var(--muted)]">Review it first.</span>
+            )}
           </div>
         </>
       )}
@@ -146,11 +157,32 @@ export function NightCard({
   );
 }
 
-function UnmatchedList({ names }: { names: string[] }) {
+/**
+ * Names the server could not match, and somewhere to go about it.
+ *
+ * The text used to end at "linking their character on the website fixes it", which is
+ * true and useless on a raid night — the officer still has to find the page. `sendable`
+ * is false once the night has actually been sent, when offering to re-check is noise.
+ */
+function UnmatchedList({ names, sendable }: { names: string[]; sendable: boolean }) {
   return (
-    <span className="selectable mt-2 block text-[var(--muted)]">
-      No Raidify account matched: {names.join(', ')}. They are not counted either way —
-      linking their character on the website fixes it for next time.
+    <span className="mt-2 block text-[var(--muted)]">
+      <span className="selectable">
+        No Raidify account matched: {names.join(', ')}. They are not counted either way —
+        linking their character on the website fixes it.
+      </span>
+      {sendable && (
+        <span className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] hover:border-[var(--primary)]"
+            onClick={() => void window.companion.openInRaidify('roster')}
+          >
+            Fix on the website
+          </button>
+          <span className="text-xs">Then check again — nothing has been sent yet.</span>
+        </span>
+      )}
     </span>
   );
 }

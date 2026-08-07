@@ -55,6 +55,15 @@ const bridge = {
   upload: (night: ParsedNight, dryRun: boolean): Promise<AttendanceUploadResult> =>
     ipcRenderer.invoke('attendance:upload', { night, dryRun }),
 
+  /**
+   * Open the page on the website that fixes a problem a check reported.
+   *
+   * A named destination, not a URL — see the handler for why the renderer is not trusted
+   * to say where the browser goes.
+   */
+  openInRaidify: (target: 'roster' | 'loot-raiders' | 'loot-record'): Promise<void> =>
+    ipcRenderer.invoke('app:openInRaidify', target),
+
   /** Exported loot nights not yet sent. Empty when the loot addon is not installed. */
   pendingLootExports: (): Promise<PendingLootExport[]> => ipcRenderer.invoke('loot:pending'),
   uploadLootSession: (

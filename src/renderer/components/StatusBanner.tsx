@@ -1,16 +1,22 @@
 import type { CompatVerdict } from '../../shared/contract';
 
 /**
- * One line saying whether this thing is working.
+ * Says something only when something is wrong.
  *
  * The companion's whole promise is that an officer stops thinking about attendance. That
  * only holds if, on the rare occasion it is not working, the app says so plainly instead
  * of looking idle — a silent failure is the reason the browser route was abandoned.
+ *
+ * Which is exactly why the healthy case renders NOTHING. It used to get a full two-line
+ * green card reading "Connected — Raidify is reachable and accepting uploads", at the top
+ * of the window, every single launch. A banner that is present when everything is fine is
+ * furniture, and the reader learns to skip the place the real warnings appear. The
+ * connection state still shows, quietly, in the header.
  */
 export function StatusBanner({ compat }: { compat: CompatVerdict | null }) {
-  if (!compat) {
-    return <Banner tone="muted" title="Checking…" body="Asking Raidify what it expects." />;
-  }
+  // Nothing while the first check is in flight either — a "Checking…" card that lives for
+  // 200ms is a flash of furniture rather than information.
+  if (!compat) return null;
 
   switch (compat.kind) {
     case 'ok':
@@ -20,9 +26,7 @@ export function StatusBanner({ compat }: { compat: CompatVerdict | null }) {
           title="An update is available"
           body="This version still works. Updating gets you the latest fixes."
         />
-      ) : (
-        <Banner tone="success" title="Connected" body="Raidify is reachable and accepting uploads." />
-      );
+      ) : null;
 
     case 'update-required':
       return (

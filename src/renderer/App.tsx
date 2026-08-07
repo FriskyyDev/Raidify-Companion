@@ -135,12 +135,32 @@ export function App() {
         <div>
           <h1 className="text-lg font-semibold">Raidify Companion</h1>
           <p className="text-sm text-[var(--muted)]">
-            Uploads your raid attendance so nobody has to paste it.
+            Sends your attendance and loot to Raidify, so nobody has to paste anything.
           </p>
         </div>
-        <span className="selectable text-xs text-[var(--muted)]">
-          {info ? `v${info.version}` : ''}
-        </span>
+        <div className="flex items-center gap-3">
+          {/*
+            The connection state, at the weight it deserves.
+
+            This replaced a full-width green card that said "Connected" on every launch.
+            Healthy is the normal case and does not need a paragraph; it needs to be
+            checkable at a glance and otherwise stay out of the way. Anything actually
+            wrong still gets the banner below.
+          */}
+          {compat?.kind === 'ok' && (
+            <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ background: 'var(--success)' }}
+              />
+              Connected
+            </span>
+          )}
+          <span className="selectable text-xs text-[var(--muted)]">
+            {info ? `v${info.version}` : ''}
+          </span>
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
