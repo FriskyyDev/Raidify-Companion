@@ -28,7 +28,7 @@ export interface WatcherEvents {
 }
 
 export interface WatcherOptions {
-  /** Full path to `RaidifyDB.lua`. */
+  /** Full path to `Raidify.lua`. */
   path: string;
   /** How long writes must stop before we read. */
   debounceMs?: number;

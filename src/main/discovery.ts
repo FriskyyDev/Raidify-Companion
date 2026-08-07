@@ -12,10 +12,37 @@ import type { SavedVariablesCandidate } from '../shared/types';
  */
 
 /** Flavour folders, newest first — a modern install has several side by side. */
+/**
+ * The saved-variables file WoW actually writes.
+ *
+ * Named after the ADDON FOLDER (`Raidify`), not after the global the .toc declares
+ * (`RaidifyDB`). We searched for `RaidifyDB.lua`, which the game never creates, so
+ * discovery could not succeed on any machine — every officer got "the addon has not
+ * written yet" no matter how many times it had.
+ *
+ * The global inside the file really is `RaidifyDB`; only the filename differs. See
+ * `SAVED_VARIABLE_NAME` in lua parsing.
+ */
+export const SAVED_VARIABLES_FILE = 'Raidify.lua';
+
+/**
+ * The loot addon's file, when the guild runs loot council.
+ *
+ * A separate addon (`Raidify_Loot`) with its own saved variable, deliberately: a corrupt
+ * loot table must not be able to take the roster and settings down with it. Same folder,
+ * same naming rule — named after the addon folder, not after `RaidifyLootDB`.
+ *
+ * Optional. Most guilds will not have it, and its absence is not a problem to report.
+ */
+export const LOOT_SAVED_VARIABLES_FILE = 'Raidify_Loot.lua';
+
 const FLAVOURS = [
   '_retail_',
   '_classic_era_',
   '_classic_',
+  // TBC Anniversary realms install here. Raidify supports that content, so leaving the
+  // folder off this list meant those raids were invisible to auto-detect.
+  '_anniversary_',
   '_classic_beta_',
   '_classic_ptr_',
   '_ptr_',
@@ -80,7 +107,7 @@ async function subdirectories(path: string): Promise<string[]> {
 }
 
 /**
- * Every `RaidifyDB.lua` under one install, across flavours and accounts.
+ * Every `Raidify.lua` under one install, across flavours and accounts.
  *
  * Sorted by last modified, newest first — on a machine with three accounts, the one
  * that raided on Tuesday is the one the officer means, and making them work that out
@@ -100,7 +127,7 @@ export async function findSavedVariables(installPath: string): Promise<SavedVari
   for (const { flavour, base } of flavourDirs) {
     const accountRoot = join(base, 'WTF', 'Account');
     for (const account of await subdirectories(accountRoot)) {
-      const path = join(accountRoot, account, 'SavedVariables', 'RaidifyDB.lua');
+      const path = join(accountRoot, account, 'SavedVariables', SAVED_VARIABLES_FILE);
       if (!(await exists(path))) continue;
 
       // Guarded: a file deleted between the check and here, or one we cannot read, must
@@ -112,11 +139,15 @@ export async function findSavedVariables(installPath: string): Promise<SavedVari
         continue;
       }
 
+      // Sibling of the core file, so no second search — just ask whether it is there.
+      const lootPath = join(accountRoot, account, 'SavedVariables', LOOT_SAVED_VARIABLES_FILE);
+
       found.push({
         installPath,
         flavour: flavour || '(install root)',
         account,
         path,
+        lootPath: (await exists(lootPath)) ? lootPath : null,
         modifiedAt: info.mtime,
         hasBackup: await exists(`${path}.bak`),
       });

@@ -22,6 +22,7 @@ export function SetupPanel({
   onRetryGuilds,
   installs,
   searchOutcome,
+  searchedPath,
   watchingPath,
   onSignIn,
   onSignOut,
@@ -39,8 +40,16 @@ export function SetupPanel({
   guildsFailed: boolean;
   onRetryGuilds: () => Promise<void>;
   installs: SavedVariablesCandidate[] | null;
-  /** How the last search ended, so a cancel is not reported as a missing file. */
-  searchOutcome: 'cancelled' | 'none' | 'found' | null;
+  /**
+   * How the last search ended, so a cancel is not reported as a missing file.
+   *
+   * `not-detected` is distinct from `none`: the automatic scan looks only in the usual
+   * install locations, so coming back empty says nothing about whether the addon has run —
+   * it usually just means the game is on another drive.
+   */
+  searchOutcome: 'cancelled' | 'none' | 'not-detected' | 'found' | null;
+  /** The folder the last manual search actually looked in, so the failure can name it. */
+  searchedPath: string | null;
   watchingPath: string | null;
   onSignIn: () => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -188,6 +197,17 @@ export function SetupPanel({
         </Step>
 
         <Step index={3} title="Point at your World of Warcraft folder" complete={fileChosen}>
+          {/* Said before the buttons, not after a failure. "Your World of Warcraft folder"
+              is ambiguous to anyone who has ever seen the inside of one — people reasonably
+              pick _retail_, or WTF, or the Interface/AddOns folder they installed into. */}
+          <p className="mb-3 text-sm text-[var(--muted)]">
+            Pick the folder that <em>contains</em> <code className="selectable">_retail_</code>{' '}
+            or <code className="selectable">_classic_era_</code> — usually{' '}
+            <code className="selectable">C:\Program Files (x86)\World of Warcraft</code>. The
+            flavour folder itself works too. Not the{' '}
+            <code className="selectable">AddOns</code> folder.
+          </p>
+
           <div className="flex flex-wrap gap-2">
             <Action
               label="Find it for me"
@@ -207,13 +227,29 @@ export function SetupPanel({
           {/* Only when a search actually came back empty. Pressing Cancel on the folder
               picker used to land here too, so changing your mind about a dialog was
               reported as your addon never having run. */}
+          {/* An automatic scan finding nothing is not evidence about the addon. Saying
+              "the addon has not written yet" here sent people to check the wrong thing. */}
+          {searchOutcome === 'not-detected' && (
+            <p className="mt-3 text-sm text-[var(--warning)]">
+              No World of Warcraft install in the usual places. If the game is on another
+              drive, use <strong>Choose the folder</strong> and point at it.
+            </p>
+          )}
+
           {searchOutcome === 'none' && (
             <p className="mt-3 text-sm text-[var(--warning)]">
-              No Raidify saved-variables file in that folder. Either it is not your World of
-              Warcraft folder, or the addon has not written yet — that file only appears
-              after the addon has run at least once and you have logged out or typed{' '}
-              <code className="selectable">/reload</code>, because the game keeps it in
-              memory until then.
+              No Raidify saved-variables file under{' '}
+              {searchedPath ? (
+                <code className="selectable">{searchedPath}</code>
+              ) : (
+                'that folder'
+              )}
+              . Raidify looks for{' '}
+              <code className="selectable">WTF\Account\&lt;account&gt;\SavedVariables\Raidify.lua</code>
+              . Either that is not your World of Warcraft folder, or the addon has not
+              written yet — that file only appears after the addon has run at least once and
+              you have logged out or typed <code className="selectable">/reload</code>,
+              because the game keeps it in memory until then.
             </p>
           )}
 

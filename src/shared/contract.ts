@@ -66,6 +66,36 @@ export interface AttendanceUploadRequest {
   clientVersion?: string | null;
   addonVersion?: string | null;
   dryRun?: boolean;
+  /**
+   * The addon's identity for this night, shared with the loot session export.
+   *
+   * Both uploads describe one evening from two files. Without this the server matches
+   * them on a minute-precision timestamp built from each payload's own start time, and a
+   * standalone night gets every attendee written twice.
+   */
+  nightId?: string | null;
+}
+
+/**
+ * What the server made of a loot session upload.
+ *
+ * Mirrors `LootSessionImportResult` in `Raidify.Core/DTOs/LootSessionImportDtos.cs`.
+ */
+export interface LootSessionImportResult {
+  dryRun: boolean;
+  guildSlug: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  awardsParsed: number;
+  recorded: number;
+  alreadyRecorded: number;
+  unmatchedRecipients: string[];
+  unmatchedItems: string[];
+  rows: { itemLabel: string; recipient: string; applied: boolean; skipped: string | null }[];
+  warnings: string[];
+  attendanceParsed: number;
+  attendanceRecorded: number;
+  unmatchedAttendees: string[] | null;
 }
 
 export enum RaidMatch {

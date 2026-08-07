@@ -1,9 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrowseResult, ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type {
+  BrowseResult,
+  ParsedNight,
+  PendingLootExport,
+  SavedVariablesCandidate,
+  Settings,
+} from '../shared/types';
 import type {
   AttendanceUploadResult,
   CompanionGuild,
   CompatVerdict,
+  LootSessionImportResult,
 } from '../shared/contract';
 
 /**
@@ -47,6 +54,15 @@ const bridge = {
   /** `dryRun` previews on the real server path and writes nothing. */
   upload: (night: ParsedNight, dryRun: boolean): Promise<AttendanceUploadResult> =>
     ipcRenderer.invoke('attendance:upload', { night, dryRun }),
+
+  /** Exported loot nights not yet sent. Empty when the loot addon is not installed. */
+  pendingLootExports: (): Promise<PendingLootExport[]> => ipcRenderer.invoke('loot:pending'),
+  uploadLootSession: (
+    payload: string,
+    nightId: string | null,
+    dryRun: boolean,
+  ): Promise<LootSessionImportResult> =>
+    ipcRenderer.invoke('loot:upload', { payload, nightId, dryRun }),
 
   /** Fires whenever a flush produced a readable night. Returns an unsubscribe. */
   onNights: (handler: (nights: ParsedNight[]) => void): (() => void) => {

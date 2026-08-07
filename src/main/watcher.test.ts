@@ -6,7 +6,7 @@ import type { ParsedNight } from '../shared/types';
 import { SavedVariablesWatcher } from './watcher';
 
 const FIXTURE = resolve(
-  'fixtures/wow/_classic_era_/WTF/Account/TESTACCOUNT#1/SavedVariables/RaidifyDB.lua',
+  'fixtures/wow/_classic_era_/WTF/Account/TESTACCOUNT#1/SavedVariables/Raidify.lua',
 );
 
 /** Milliseconds, not seconds — the production defaults would make these tests race the clock. */
@@ -22,7 +22,7 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
 
 async function scratch(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'rfc-watch-'));
-  return join(dir, 'RaidifyDB.lua');
+  return join(dir, 'Raidify.lua');
 }
 
 function collect() {
@@ -201,7 +201,7 @@ describe('SavedVariablesWatcher', () => {
     const dir = await mkdtemp(join(tmpdir(), 'rfc-rearm-'));
     const nested = join(dir, 'SavedVariables');
     await mkdir(nested);
-    const path = join(nested, 'RaidifyDB.lua');
+    const path = join(nested, 'Raidify.lua');
     await copyFile(FIXTURE, path);
 
     const sink = collect();
@@ -232,7 +232,7 @@ describe('SavedVariablesWatcher', () => {
     const dir = await mkdtemp(join(tmpdir(), 'rfc-rearm2-'));
     const nested = join(dir, 'SavedVariables');
     await mkdir(nested);
-    const path = join(nested, 'RaidifyDB.lua');
+    const path = join(nested, 'Raidify.lua');
     await copyFile(FIXTURE, path);
 
     const sink = collect();

@@ -13,7 +13,7 @@ describe('findSavedVariables', () => {
     expect(found).toHaveLength(1);
     expect(found[0]!.flavour).toBe('_classic_era_');
     expect(found[0]!.account).toBe('TESTACCOUNT#1');
-    expect(found[0]!.path.endsWith('RaidifyDB.lua')).toBe(true);
+    expect(found[0]!.path.endsWith('Raidify.lua')).toBe(true);
   });
 
   it('also accepts being pointed straight at a flavour folder', async () => {
@@ -30,7 +30,7 @@ describe('findSavedVariables', () => {
     for (const account of ['OLD#1', 'RECENT#1']) {
       const dir = join(root, '_classic_era_', 'WTF', 'Account', account, 'SavedVariables');
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, 'RaidifyDB.lua'), 'RaidifyDB = {}', 'utf8');
+      await writeFile(join(dir, 'Raidify.lua'), 'RaidifyDB = {}', 'utf8');
       // Ensure a distinguishable mtime between the two writes.
       await new Promise((r) => setTimeout(r, 20));
     }

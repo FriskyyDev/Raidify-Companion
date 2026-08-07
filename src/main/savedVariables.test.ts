@@ -6,7 +6,7 @@ import { AttendanceBucket } from '../shared/contract';
 import { NoSessionError, bucketNight, readNights, waitForStableFile } from './savedVariables';
 
 const FIXTURE = resolve(
-  'fixtures/wow/_classic_era_/WTF/Account/TESTACCOUNT#1/SavedVariables/RaidifyDB.lua',
+  'fixtures/wow/_classic_era_/WTF/Account/TESTACCOUNT#1/SavedVariables/Raidify.lua',
 );
 
 function bucketOf(rows: { name: string; bucket: AttendanceBucket }[], name: string) {
@@ -53,7 +53,7 @@ describe('readNights', () => {
 
   it('falls back to the .bak when the live file was caught mid-write', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rfc-'));
-    const path = join(dir, 'RaidifyDB.lua');
+    const path = join(dir, 'Raidify.lua');
 
     // Truncated exactly the way a crash mid-flush leaves it.
     await writeFile(path, 'RaidifyDB = {\n\t["char"] = {\n\t\t["Fenrik - Night', 'utf8');
@@ -66,7 +66,7 @@ describe('readNights', () => {
 
   it('gives up honestly when neither the file nor its backup parses', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rfc-'));
-    const path = join(dir, 'RaidifyDB.lua');
+    const path = join(dir, 'Raidify.lua');
     await writeFile(path, 'RaidifyDB = { ["char"] = {', 'utf8');
 
     await expect(readNights(path)).rejects.toThrow();
@@ -114,7 +114,7 @@ describe('bucketNight', () => {
 describe('waitForStableFile', () => {
   it('returns once the size stops moving', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rfc-'));
-    const path = join(dir, 'RaidifyDB.lua');
+    const path = join(dir, 'Raidify.lua');
     await writeFile(path, 'RaidifyDB = {}', 'utf8');
 
     await expect(

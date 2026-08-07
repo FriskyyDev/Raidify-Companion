@@ -1,5 +1,6 @@
 import type {
   AttendanceUploadRequest,
+  LootSessionImportResult,
   AttendanceUploadResult,
   CompanionGuild,
   CompatResponse,
@@ -16,7 +17,8 @@ import type {
  * not a general-purpose channel into the officer's account.
  */
 
-const DEFAULT_BASE_URL = 'https://www.raidify.app';
+/** The API origin, not the web one — every path here is prefixed `/api/v1`. */
+const DEFAULT_BASE_URL = 'https://api.raidify.app';
 
 export class ApiError extends Error {
   constructor(
@@ -102,6 +104,26 @@ export class ApiClient {
       'POST',
       `/api/v1/guilds/${guildId}/companion/attendance`,
       { body, signal },
+    );
+  }
+
+  /**
+   * Send a loot session the addon exported.
+   *
+   * `content` is the addon's `RAIDIFY:v1:lootawards:...` string, forwarded byte for byte.
+   * We never decode it: the server already knows the format, and a second decoder here
+   * could disagree with the one that produced the checksum.
+   */
+  async uploadLootSession(
+    guildId: string,
+    content: string,
+    dryRun: boolean,
+    signal?: AbortSignal,
+  ): Promise<LootSessionImportResult> {
+    return this.request<LootSessionImportResult>(
+      'POST',
+      `/api/v1/guilds/${guildId}/companion/loot-session`,
+      { body: { content, dryRun }, signal },
     );
   }
 

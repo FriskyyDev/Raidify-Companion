@@ -4,7 +4,7 @@ import type { ParsedNight } from '../shared/types';
 import { LuaParseError, readSavedVariable, toArray } from './lua';
 
 /**
- * Turning `RaidifyDB.lua` into a night we can upload.
+ * Turning `Raidify.lua` into a night we can upload.
  *
  * ⚠️ **This mirrors logic that also lives in Lua.** `Raidify:GetAttendanceData()` in
  * `Attendance.lua` buckets the same way against live game state; this reproduces it from
@@ -60,6 +60,8 @@ interface BenchMark {
 }
 
 interface AttendanceSession {
+  /** Shared with the loot session export so both uploads describe one evening. */
+  nightId?: string;
   startedAt?: number;
   endedAt?: number;
   tracker?: Tracker;
@@ -245,6 +247,9 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
 
   return {
     characterKey,
+    // Ties this night to the loot session exported for the same evening, so the two
+    // uploads do not both write the same attendees.
+    nightId: typeof session.nightId === 'string' ? session.nightId : null,
     raidIdHint: scope.importedData?.raidInfo?.id ?? null,
     raidTitle: scope.importedData?.raidInfo?.title ?? null,
     startedAt: toDate(startedAt),
@@ -262,7 +267,7 @@ function isStale(when: Date | null): boolean {
 }
 
 /**
- * Read a `RaidifyDB.lua` and return every character's night in it.
+ * Read a `Raidify.lua` and return every character's night in it.
  *
  * Falls back to `RaidifyDB.lua.bak` when the main file will not parse. WoW keeps the
  * previous copy, and a crash mid-flush leaves a good `.bak` beside a truncated `.lua` —

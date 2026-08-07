@@ -15,8 +15,15 @@ export interface SavedVariablesCandidate {
   flavour: string;
   /** The WTF account folder name. */
   account: string;
-  /** Full path to `RaidifyDB.lua`. */
+  /** Full path to `Raidify.lua`. */
   path: string;
+  /**
+   * Full path to `Raidify_Loot.lua`, or null when the loot addon is not installed.
+   *
+   * Optional by design: most guilds do not run loot council, and its absence is a fact
+   * about the guild rather than a problem to report.
+   */
+  lootPath: string | null;
   /** So the UI can show which one is actually in use. */
   modifiedAt: Date;
   hasBackup: boolean;
@@ -39,6 +46,13 @@ export type BrowseResult =
 export interface ParsedNight {
   /** AceDB character key, e.g. `Toon - Nightslayer`. */
   characterKey: string;
+  /**
+   * The addon's identity for this night, shared with the loot session export.
+   *
+   * Null on nights recorded before the addon stamped one, which fall back to timestamp
+   * matching server-side.
+   */
+  nightId: string | null;
   raidIdHint: string | null;
   raidTitle: string | null;
   startedAt: Date | null;
@@ -62,12 +76,40 @@ export interface ParsedNight {
   rows: AttendanceRow[];
 }
 
+/**
+ * A loot night the addon has exported and this machine may not have sent yet.
+ *
+ * The payload is the addon's own export string, carried through untouched — see
+ * `src/main/lootExports.ts` for why nothing here decodes it.
+ */
+export interface PendingLootExport {
+  /** Shared with the attendance night. Absent on addon builds older than that field. */
+  nightId: string | null;
+  exportedAt: Date | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  awards: number;
+  /** The `RAIDIFY:v1:...` string, forwarded to the server verbatim. */
+  payload: string;
+}
+
 export interface Settings {
   /** Which guild this machine reports for. Null until setup is done. */
   guildId: string | null;
   guildName: string | null;
-  /** The `RaidifyDB.lua` we watch. */
+  /** The `Raidify.lua` we watch. */
   savedVariablesPath: string | null;
+  /** The `Raidify_Loot.lua` beside it, when the guild runs loot council. */
+  lootSavedVariablesPath: string | null;
+  /**
+   * Loot nights already sent from this machine, by `nightId`.
+   *
+   * Separate from `uploaded` because the addon cannot be told what has been sent — the
+   * companion only reads that file, and WoW overwrites anything written from outside it.
+   * So the addon keeps a bounded window of recent exports and this is what stops the same
+   * night being offered forever.
+   */
+  uploadedLootNights: string[];
   /**
    * The `World of Warcraft` folder it was found under.
    *

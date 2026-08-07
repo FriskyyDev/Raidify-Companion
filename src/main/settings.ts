@@ -24,9 +24,11 @@ const DEFAULTS: Settings = {
   guildId: null,
   guildName: null,
   savedVariablesPath: null,
+  lootSavedVariablesPath: null,
   installPath: null,
   autoWatch: true,
   uploaded: [],
+  uploadedLootNights: [],
 };
 
 const FILE = (): string => join(app.getPath('userData'), 'settings.json');
@@ -54,10 +56,15 @@ export function loadSettings(): Settings {
       guildName: typeof parsed.guildName === 'string' ? parsed.guildName : null,
       savedVariablesPath:
         typeof parsed.savedVariablesPath === 'string' ? parsed.savedVariablesPath : null,
+      lootSavedVariablesPath:
+        typeof parsed.lootSavedVariablesPath === 'string' ? parsed.lootSavedVariablesPath : null,
       installPath: typeof parsed.installPath === 'string' ? parsed.installPath : null,
       autoWatch: typeof parsed.autoWatch === 'boolean' ? parsed.autoWatch : true,
       uploaded: Array.isArray(parsed.uploaded)
         ? parsed.uploaded.filter((u): u is UploadedNight => typeof u?.key === 'string')
+        : [],
+      uploadedLootNights: Array.isArray(parsed.uploadedLootNights)
+        ? parsed.uploadedLootNights.filter((id): id is string => typeof id === 'string')
         : [],
     };
   } catch {
@@ -91,6 +98,20 @@ export function saveSettings(next: Partial<Settings>): Settings {
 export function rememberUpload(entry: UploadedNight): Settings {
   const rest = loadSettings().uploaded.filter((u) => u.key !== entry.key);
   return saveSettings({ uploaded: [...rest, entry] });
+}
+
+/**
+ * Record that a loot night reached the server.
+ *
+ * Kept here rather than in the addon's file because the companion cannot write there —
+ * WoW owns that file and overwrites anything put in from outside. The addon keeps a
+ * bounded window of recent exports; this is what stops one being offered forever.
+ *
+ * Bounded to the same order as that window, so this cannot grow without limit either.
+ */
+export function rememberLootUpload(nightId: string): Settings {
+  const rest = loadSettings().uploadedLootNights.filter((id) => id !== nightId);
+  return saveSettings({ uploadedLootNights: [...rest, nightId].slice(-MAX_HISTORY) });
 }
 
 /** Test seam. The cache is process-wide and would otherwise leak between cases. */

@@ -1,7 +1,7 @@
 import { LuaFactory } from 'wasmoon';
 
 /**
- * Reading `RaidifyDB.lua`.
+ * Reading `Raidify.lua`.
  *
  * The file is Lua source, not JSON — an AceDB table literal with comments, `["key"]`
  * indices, `[1] =` array entries, nested tables and Lua string escapes. So it is

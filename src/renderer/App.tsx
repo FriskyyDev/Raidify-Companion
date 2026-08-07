@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CompanionGuild, CompatVerdict } from '../shared/contract';
-import type { ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type {
+  ParsedNight,
+  PendingLootExport,
+  SavedVariablesCandidate,
+  Settings,
+} from '../shared/types';
 import { nightKey } from '../shared/nightKey';
+import { LootExportCard } from './components/LootExportCard';
 import { NightCard } from './components/NightCard';
 import { SetupPanel } from './components/SetupPanel';
 import { StatusBanner } from './components/StatusBanner';
@@ -30,7 +36,11 @@ export function App() {
   const [guildsFailed, setGuildsFailed] = useState(false);
   const [installs, setInstalls] = useState<SavedVariablesCandidate[] | null>(null);
   /** How the last folder search ended, so the UI can tell a cancel from an empty result. */
-  const [searchOutcome, setSearchOutcome] = useState<'cancelled' | 'none' | 'found' | null>(null);
+  const [searchOutcome, setSearchOutcome] = useState<
+    'cancelled' | 'none' | 'not-detected' | 'found' | null
+  >(null);
+  const [searchedPath, setSearchedPath] = useState<string | null>(null);
+  const [pendingLoot, setPendingLoot] = useState<PendingLootExport[]>([]);
   const [watchingPath, setWatchingPath] = useState<string | null>(null);
   const [nights, setNights] = useState<ParsedNight[]>([]);
   const [watchError, setWatchError] = useState<string | null>(null);
@@ -72,6 +82,7 @@ export function App() {
         // Pick the file back up from last launch, and watch it again if that is what the
         // officer asked for.
         setWatchingPath((await window.companion.resume()).path);
+        setPendingLoot(await window.companion.pendingLootExports());
       }
     })();
   }, [loadGuilds]);
@@ -79,10 +90,15 @@ export function App() {
   // Subscribed once, for the life of the window. A flush landing while the officer reads
   // is the normal case — they alt-tab out of the game and the file arrives.
   useEffect(() => {
+    // Both saved-variables files are flushed by the same logout, so the core file's
+    // event is a reliable moment to re-read the loot one too. No second watcher needed.
+    const refreshLoot = () => void window.companion.pendingLootExports().then(setPendingLoot);
+
     const stopNights = window.companion.onNights((incoming) => {
       setNights(incoming);
       setLastEmptyRead(null);
       setWatchError(null);
+      refreshLoot();
     });
     const stopEmpty = window.companion.onEmptyRead((info) => {
       // A later read finding nothing means the file was rewritten without a session in
@@ -91,6 +107,8 @@ export function App() {
       setNights([]);
       setLastEmptyRead(info.at);
       setWatchError(null);
+      // A loot-only night reads as empty here — there may still be loot to send.
+      refreshLoot();
     });
     const stopErrors = window.companion.onWatchError((error) => setWatchError(error.message));
     const stopUpdate = window.companion.onUpdateReady(setUpdateReady);
@@ -160,6 +178,7 @@ export function App() {
           onRetryGuilds={loadGuilds}
           installs={installs}
           searchOutcome={searchOutcome}
+          searchedPath={searchedPath}
           watchingPath={watchingPath}
           onSignIn={async () => {
             await window.companion.signIn();
@@ -176,10 +195,19 @@ export function App() {
               await window.companion.saveSettings({ guildId: guild.id, guildName: guild.name }),
             );
           }}
-          onDetect={async () => setInstalls(await window.companion.detectInstalls())}
+          onDetect={async () => {
+            const found = await window.companion.detectInstalls();
+            setInstalls(found);
+            // Previously set only `installs`. An empty scan therefore rendered nothing at
+            // all: no list, and no outcome for the panel to report — so "Find it for me"
+            // looked like a dead button.
+            setSearchedPath(null);
+            setSearchOutcome(found.length > 0 ? 'found' : 'not-detected');
+          }}
           onBrowse={async () => {
             const result = await window.companion.browseForInstall();
             setSearchOutcome(result.outcome);
+            setSearchedPath(result.outcome === 'none' ? result.searchedPath : null);
             // A cancel leaves whatever was already on screen alone — the officer did not
             // ask us to forget the installs we had found.
             if (result.outcome === 'found') setInstalls(result.candidates);
@@ -189,6 +217,9 @@ export function App() {
             setSettings(
               await window.companion.saveSettings({
                 savedVariablesPath: candidate.path,
+                // Null when the loot addon is not installed, which is the common case and
+                // deliberately not an error.
+                lootSavedVariablesPath: candidate.lootPath,
                 installPath: candidate.installPath,
               }),
             );
@@ -250,6 +281,35 @@ export function App() {
             })
           )}
         </section>
+
+        {/*
+          Only for guilds that actually run loot council. A guild with no loot addon has
+          no pending exports and never sees this heading — the section is absent rather
+          than empty, because an empty box for a feature you do not use is clutter.
+        */}
+        {pendingLoot.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-medium">Loot sessions</h2>
+            {pendingLoot.map((night) => (
+              <LootExportCard
+                key={night.nightId ?? night.payload.slice(0, 32)}
+                night={night}
+                disabled={!signedIn || !settings?.guildId}
+                onUpload={async (dryRun) => {
+                  const result = await window.companion.uploadLootSession(
+                    night.payload,
+                    night.nightId,
+                    dryRun,
+                  );
+                  // A real send takes the night off the list. Re-read rather than filter
+                  // locally, so what is on screen matches what the main process recorded.
+                  if (!dryRun) setPendingLoot(await window.companion.pendingLootExports());
+                  return result;
+                }}
+              />
+            ))}
+          </section>
+        )}
       </main>
     </div>
   );

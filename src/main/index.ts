@@ -19,15 +19,23 @@ import { buildAuthorizeUrl, createPkcePair, LoopbackReceiver } from './auth';
 import { autoDetect, findSavedVariables } from './discovery';
 import { canPersist, clearToken, loadToken, persistenceBlocker, saveToken } from './secrets';
 import { readNights } from './savedVariables';
-import { loadSettings, rememberUpload, saveSettings } from './settings';
+import { readLootExports } from './lootExports';
+import { loadSettings, rememberLootUpload, rememberUpload, saveSettings } from './settings';
 import { nightKey } from '../shared/nightKey';
-import type { BrowseResult, ParsedNight, SavedVariablesCandidate, Settings } from '../shared/types';
+import type {
+  BrowseResult,
+  ParsedNight,
+  PendingLootExport,
+  SavedVariablesCandidate,
+  Settings,
+} from '../shared/types';
 import { SavedVariablesWatcher } from './watcher';
 import {
   evaluateCompat,
   type AttendanceUploadResult,
   type CompanionGuild,
   type CompatVerdict,
+  type LootSessionImportResult,
 } from '../shared/contract';
 
 /**
@@ -55,7 +63,16 @@ const CLIENT_VERSION: string = app.isPackaged
         return app.getVersion();
       }
     })();
-const API_BASE_URL = process.env.RAIDIFY_API_URL ?? undefined;
+/**
+ * Two hosts, not one.
+ *
+ * The consent page is served by the web app on www; the JSON API is a separate origin. A
+ * single shared base sent `/api/v1/...` to the SPA host, which answers unknown paths with
+ * index.html — so every call died on `Unexpected token '<'` rather than saying anything
+ * useful about what was wrong.
+ */
+const WEB_BASE_URL = process.env.RAIDIFY_WEB_URL ?? 'https://www.raidify.app';
+const API_BASE_URL = process.env.RAIDIFY_API_URL ?? 'https://api.raidify.app';
 
 let window: BrowserWindow | null = null;
 let watcher: SavedVariablesWatcher | null = null;
@@ -209,6 +226,7 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
     'appInfo', 'checkCompat', 'authStatus', 'signOut', 'signIn',
     'detectInstalls', 'browseForInstall', 'readNights', 'watch', 'unwatch', 'resume',
     'getSettings', 'saveSettings', 'listGuilds', 'upload',
+    'pendingLootExports', 'uploadLootSession',
     'updateStatus', 'installUpdate',
     'onNights', 'onEmptyRead', 'onWatchError', 'onUpdateReady',
   ];
@@ -325,7 +343,7 @@ ipcMain.handle('auth:signIn', async () => {
     const { port, code } = await receiver.listen();
 
     await shell.openExternal(
-      buildAuthorizeUrl(API_BASE_URL ?? 'https://www.raidify.app', {
+      buildAuthorizeUrl(WEB_BASE_URL, {
         challenge,
         port,
         state: receiver.state,
@@ -404,7 +422,18 @@ async function restoreDiscovered(): Promise<string | null> {
 
   try {
     const candidates = remember(await findSavedVariables(installPath));
-    return candidates.some((c) => c.path === savedVariablesPath) ? savedVariablesPath : null;
+    const match = candidates.find((c) => c.path === savedVariablesPath);
+    if (!match) return null;
+
+    // Keep the loot path in step with what is actually on disk, rather than only when the
+    // officer walks through setup again. This covers two ordinary cases: settings written
+    // before the loot file was a thing at all, and a guild that installs the loot addon
+    // later. Both would otherwise show no loot section and look broken.
+    if (loadSettings().lootSavedVariablesPath !== match.lootPath) {
+      saveSettings({ lootSavedVariablesPath: match.lootPath });
+    }
+
+    return savedVariablesPath;
   } catch {
     // The drive is gone, or the folder moved. Not an error worth a dialog on launch —
     // the officer will be asked to point at it again.
@@ -538,6 +567,7 @@ ipcMain.handle(
       startedAt: asIso(night.startedAt),
       endedAt: asIso(night.endedAt),
       raidIdHint: night.raidIdHint,
+      nightId: night.nightId,
       clientVersion: CLIENT_VERSION,
       dryRun: dryRun === true,
     });
@@ -551,6 +581,52 @@ ipcMain.handle(
         updated: result.updated,
       });
     }
+
+    return result;
+  },
+);
+
+/**
+ * Loot nights this machine has exported and not yet sent.
+ *
+ * Returns an empty list rather than an error when the loot addon is not installed — most
+ * guilds do not run loot council, and that is a fact about the guild, not a fault.
+ */
+ipcMain.handle('loot:pending', async (): Promise<PendingLootExport[]> => {
+  const { lootSavedVariablesPath, uploadedLootNights } = loadSettings();
+  if (!lootSavedVariablesPath) return [];
+
+  const contents = await readLootExports(lootSavedVariablesPath);
+  if (!contents) return [];
+
+  const alreadySent = new Set(uploadedLootNights);
+  // A night with no id cannot be deduplicated, so it is always offered. That is the right
+  // way round: showing one twice is a nuisance, silently dropping one loses the record.
+  return contents.pending.filter((p) => !p.nightId || !alreadySent.has(p.nightId));
+});
+
+/**
+ * Send one exported loot session.
+ *
+ * The payload is forwarded exactly as the addon wrote it. A dry run is never recorded as
+ * sent — preview and commit run the same server path, so the preview is the work.
+ */
+ipcMain.handle(
+  'loot:upload',
+  async (_event, request: unknown): Promise<LootSessionImportResult> => {
+    const { payload, nightId, dryRun } = (request ?? {}) as {
+      payload?: string;
+      nightId?: string | null;
+      dryRun?: boolean;
+    };
+    if (!payload) throw new Error('No loot session to upload.');
+
+    const { guildId } = loadSettings();
+    if (!guildId) throw new Error('Choose which guild this machine reports for first.');
+
+    const result = await api.uploadLootSession(guildId, payload, dryRun === true);
+
+    if (!dryRun && nightId) rememberLootUpload(nightId);
 
     return result;
   },
