@@ -237,9 +237,8 @@ export function App() {
             setSettings(
               await window.companion.saveSettings({
                 savedVariablesPath: candidate.path,
-                // Null when the loot addon is not installed, which is the common case and
-                // deliberately not an error.
-                lootSavedVariablesPath: candidate.lootPath,
+                // The loot file is derived in the main process from this install, not sent
+                // from here — it is a property of what discovery found, not a choice.
                 installPath: candidate.installPath,
               }),
             );

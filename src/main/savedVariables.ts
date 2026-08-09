@@ -146,6 +146,33 @@ function toDate(seconds: number | undefined): Date | null {
 }
 
 /**
+ * When a session has no explicit end, guess it from the last moment the addon saw anybody.
+ *
+ * This used to substitute "now", and that quietly libels most of the raid. An explicit end
+ * needs `/rf end`, and the automatic one only fires on a final-boss kill — so a wipe night or
+ * a partial clear routinely leaves the session open. The officer opens this app the next
+ * morning; everyone who dropped group as the raid broke up is then hours short of `endedAt`,
+ * clears the five-minute threshold, and uploads as "left early".
+ *
+ * Nothing downstream would show them the mistake either: the dry run reports success, and the
+ * night card folds Present, Late and LeftEarly into one "turned up" count. It surfaces days
+ * later as a raider disputing their own record, which is the worst possible way to find out.
+ *
+ * Attendance.lua fixed exactly this and carries the same reasoning; this is the mirror of it.
+ * The two must agree, or the same night reads differently depending on which file was uploaded.
+ */
+function inferEndedAt(lastSeen: Record<string, unknown>): number {
+  let latest: number | null = null;
+  for (const key of Object.keys(lastSeen)) {
+    const seen = ownValue(lastSeen, key);
+    if (typeof seen === 'number' && Number.isFinite(seen) && (latest === null || seen > latest)) {
+      latest = seen;
+    }
+  }
+  return latest ?? Math.floor(Date.now() / 1000);
+}
+
+/**
  * Bucket one character's night.
  *
  * Mirrors `Attendance.lua:426-500`. Read them side by side when changing either.
@@ -172,8 +199,7 @@ export function bucketNight(characterKey: string, scope: CharScope): ParsedNight
   const benchMarks = session.benchMarks ?? {};
 
   const startedAt = session.startedAt;
-  // The Lua falls back to "now" for left-early detection on a session still running.
-  const endedAt = session.endedAt ?? Math.floor(Date.now() / 1000);
+  const endedAt = session.endedAt ?? inferEndedAt(lastSeen);
 
   const rows: AttendanceRow[] = [];
 

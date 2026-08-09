@@ -109,6 +109,63 @@ describe('bucketNight', () => {
     expect(night.finished).toBe(false);
     expect(night.endedAt).toBeNull();
   });
+
+  it('does not call the whole raid "left early" when nobody typed /rf end', () => {
+    // The common shape of a first night: a wipe or a partial clear, so the automatic end
+    // never fires and nobody runs the command. The officer opens the app the next morning.
+    //
+    // Substituting "now" for the missing end made everyone who dropped group as the raid
+    // broke up hours short of it, and they uploaded as LeftEarly — a false statement about
+    // named people that no screen in the app would have shown the officer. The last moment
+    // the addon saw anybody is the honest guess, and it does not drift overnight.
+    const night = bucketNight('X - Y', {
+      importedData: {
+        currentRoster: [
+          { name: 'Alpha', status: 1 },
+          { name: 'Bravo', status: 1 },
+        ],
+      },
+      attendanceSession: {
+        startedAt: 1000,
+        // No endedAt.
+        lastKnownMembers: {},
+        tracker: {
+          everPresent: { alpha: true, bravo: true },
+          // Both left as the raid broke up, within the grace window of each other.
+          lastSeen: { alpha: 20_000, bravo: 20_100 },
+        },
+      },
+    });
+
+    expect(night.rows.map((r) => r.bucket)).toEqual([
+      AttendanceBucket.Present,
+      AttendanceBucket.Present,
+    ]);
+  });
+
+  it('still reports someone who genuinely left early on an unfinished night', () => {
+    const night = bucketNight('X - Y', {
+      importedData: {
+        currentRoster: [
+          { name: 'Early', status: 1 },
+          { name: 'Stayed', status: 1 },
+        ],
+      },
+      attendanceSession: {
+        startedAt: 1000,
+        lastKnownMembers: {},
+        tracker: {
+          everPresent: { early: true, stayed: true },
+          lastSeen: { early: 2000, stayed: 20_000 },
+        },
+      },
+    });
+
+    expect(night.rows.map((r) => r.bucket)).toEqual([
+      AttendanceBucket.LeftEarly,
+      AttendanceBucket.Present,
+    ]);
+  });
 });
 
 describe('waitForStableFile', () => {

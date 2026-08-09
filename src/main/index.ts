@@ -490,8 +490,21 @@ ipcMain.handle('wow:browse', async (): Promise<BrowseResult> => {
  */
 const discovered = new Set<string>();
 
+/**
+ * The loot file that sits alongside each discovered attendance file.
+ *
+ * Kept as a lookup rather than a second allowlist because the renderer should never name the
+ * loot path at all: it is a property of the install we found, so it is derived from the
+ * attendance path the renderer chose. That closes the gap where the "nothing is read that
+ * discovery did not produce" rule was enforced for one of the two files this app opens.
+ */
+const lootPathFor = new Map<string, string | null>();
+
 function remember(candidates: SavedVariablesCandidate[]): SavedVariablesCandidate[] {
-  for (const candidate of candidates) discovered.add(candidate.path);
+  for (const candidate of candidates) {
+    discovered.add(candidate.path);
+    lootPathFor.set(candidate.path, candidate.lootPath ?? null);
+  }
   return candidates;
 }
 
@@ -527,6 +540,14 @@ async function restoreDiscovered(): Promise<string | null> {
     // the officer will be asked to point at it again.
     return null;
   }
+}
+
+/** Whether this exact loot file sits alongside an install discovery has found this session. */
+function isDiscoveredLootPath(path: string): boolean {
+  for (const known of lootPathFor.values()) {
+    if (known === path) return true;
+  }
+  return false;
 }
 
 function requireDiscovered(path: unknown): string {
@@ -650,11 +671,19 @@ ipcMain.handle('settings:set', (_event, patch: unknown): Settings => {
   if (input.savedVariablesPath === null) {
     next.savedVariablesPath = null;
     next.installPath = null;
+    next.lootSavedVariablesPath = null;
   } else if (input.savedVariablesPath !== undefined) {
     // Same rule as reading: a path we did not discover ourselves is not a path we store
     // and then hand to a file read on the next launch.
     next.savedVariablesPath = requireDiscovered(input.savedVariablesPath);
     next.installPath = typeof input.installPath === 'string' ? input.installPath : null;
+
+    // Derived, not accepted. The renderer sends a lootSavedVariablesPath during setup and
+    // this handler used to drop it silently, so a guild running the loot addon saw no Loot
+    // section at all until they restarted the app — the only other writer runs on resume,
+    // which needs a session that was already signed in at launch. Deriving it from the
+    // discovered install fixes that without giving the renderer a second path to name.
+    next.lootSavedVariablesPath = lootPathFor.get(next.savedVariablesPath) ?? null;
   }
 
   return saveSettings(next);
@@ -714,6 +743,14 @@ ipcMain.handle(
 ipcMain.handle('loot:pending', async (): Promise<PendingLootExport[]> => {
   const { lootSavedVariablesPath, uploadedLootNights } = loadSettings();
   if (!lootSavedVariablesPath) return [];
+
+  // Re-earn it, the same rule the attendance file follows. This path came out of settings,
+  // and a settings file can be copied from another machine or edited by hand — it should not
+  // buy a file read and a Lua evaluation on the strength of having been written down.
+  if (!isDiscoveredLootPath(lootSavedVariablesPath)) {
+    await restoreDiscovered();
+    if (!isDiscoveredLootPath(lootSavedVariablesPath)) return [];
+  }
 
   const contents = await readLootExports(lootSavedVariablesPath);
   if (!contents) return [];
