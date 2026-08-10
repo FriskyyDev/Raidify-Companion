@@ -11,6 +11,7 @@ import { LootExportCard } from './components/LootExportCard';
 import { NightCard } from './components/NightCard';
 import { SetupPanel } from './components/SetupPanel';
 import { StatusBanner } from './components/StatusBanner';
+import { ReportProblem } from './components/ReportProblem';
 
 interface AppInfo {
   version: string;
@@ -329,6 +330,13 @@ export function App() {
             ))}
           </section>
         )}
+
+        {/*
+          Always present, at the bottom, quiet until it is needed — and already open when
+          something has visibly gone wrong, because that is the moment somebody would look for
+          it and the moment they are least inclined to hunt.
+        */}
+        <ReportProblem defaultOpen={!!watchError} />
       </main>
     </div>
   );

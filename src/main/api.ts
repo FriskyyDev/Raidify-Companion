@@ -127,10 +127,36 @@ export class ApiClient {
     );
   }
 
+  /**
+   * Send a diagnostic report the officer chose to share.
+   *
+   * Attaches the token when there is one and sends it anyway when there is not. The reports
+   * most worth having come from an app that cannot do its job, and sign-in is one of the
+   * things that breaks — refusing to report a broken sign-in would lose exactly the failures
+   * nobody can otherwise describe. The server treats an anonymous one as anonymous.
+   */
+  async sendErrorReport(
+    body: {
+      report: string;
+      summary: string;
+      userNote?: string;
+      appVersion: string;
+      platform: string;
+      guildId?: string | null;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ reportId: string }> {
+    return this.request<{ reportId: string }>('POST', '/api/v1/companion/error-reports', {
+      body,
+      authenticated: 'optional',
+      signal,
+    });
+  }
+
   private async request<T>(
     method: string,
     path: string,
-    opts: { body?: unknown; authenticated?: boolean; signal?: AbortSignal } = {},
+    opts: { body?: unknown; authenticated?: boolean | 'optional'; signal?: AbortSignal } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -139,7 +165,11 @@ export class ApiClient {
 
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
 
-    if (opts.authenticated !== false) {
+    if (opts.authenticated === 'optional') {
+      // Best effort: identify the caller if we can, proceed as a stranger if we cannot.
+      const token = await this.options.getToken().catch(() => null);
+      if (token) headers.Authorization = `Bearer ${token}`;
+    } else if (opts.authenticated !== false) {
       const token = await this.options.getToken();
       if (!token) throw new ApiError('Not signed in.', 401);
       headers.Authorization = `Bearer ${token}`;

@@ -32,12 +32,53 @@ import type {
 } from '../shared/types';
 import { SavedVariablesWatcher } from './watcher';
 import {
+  buildReport,
+  captureProcessErrors,
+  diagnosticsDirectory,
+  initDiagnostics,
+  logError,
+  logInfo,
+  logWarn,
+} from './diagnostics';
+import {
   evaluateCompat,
   type AttendanceUploadResult,
   type CompanionGuild,
   type CompatVerdict,
   type LootSessionImportResult,
 } from '../shared/contract';
+
+/*
+ * Diagnostics come up before anything else in this module, because the handlers below
+ * register at import time and the wrapper has to be in place before they do.
+ *
+ * app.getPath('userData') is valid before `ready`, so the log is open early enough to catch
+ * a failure during startup — the class of failure we are least able to reproduce.
+ */
+initDiagnostics();
+captureProcessErrors();
+
+/*
+ * Every IPC handler, wrapped once.
+ *
+ * Wrapping here rather than at each call site means a handler added later cannot forget to
+ * log, and it catches the case that used to vanish entirely: an exception inside a handler
+ * crosses the IPC boundary as a string, so the renderer showed one sentence and the stack —
+ * the only part that identifies the line — was never written down anywhere.
+ *
+ * The error is re-thrown unchanged. This observes; it does not alter behaviour.
+ */
+type IpcListener = (...args: never[]) => unknown;
+const registerHandler = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = ((channel: string, listener: IpcListener) =>
+  registerHandler(channel, async (...args) => {
+    try {
+      return await listener(...(args as unknown as never[]));
+    } catch (error) {
+      logError(`IPC ${channel} failed`, error);
+      throw error;
+    }
+  })) as typeof ipcMain.handle;
 
 /**
  * Main process.
@@ -134,13 +175,21 @@ function startUpdateChecks(): void {
     emit('update:ready', updateReady);
   });
 
-  // Never fatal. A failed update check must not stop the app doing its actual job, and
-  // an officer with no network is the ordinary case, not an error worth a dialog.
-  autoUpdater.on('error', () => {});
+  // Never fatal. A failed update check must not stop the app doing its actual job, and an
+  // officer with no network is the ordinary case, not an error worth a dialog.
+  //
+  // Logged rather than swallowed, though. This used to be an empty function, which made a
+  // permanently broken updater — a corrupt cache, a proxy, AV quarantine — indistinguishable
+  // from a healthy one right up until the server raised its version floor and the app became
+  // a brick whose only advice was to ask in Discord.
+  autoUpdater.on('error', (error) => logWarn('Update check failed', error));
 
-  void autoUpdater.checkForUpdates().catch(() => {});
+  void autoUpdater.checkForUpdates().catch((error: unknown) => logWarn('Update check failed', error));
   // Six hours: this app is meant to stay open for weeks.
-  setInterval(() => void autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+  setInterval(
+    () => void autoUpdater.checkForUpdates().catch((error: unknown) => logWarn('Update check failed', error)),
+    6 * 60 * 60 * 1000,
+  );
 }
 
 function createWindow(): void {
@@ -374,6 +423,72 @@ ipcMain.handle('app:info', () => ({
   signInMemoryBlocker: persistenceBlocker(),
   platform: process.platform,
 }));
+
+// ── diagnostics ─────────────────────────────────────────────────────────────────
+
+/**
+ * Everything the officer is about to hand over, so they can read it first.
+ *
+ * The renderer shows this verbatim rather than describing it. A report you are asked to send
+ * without being shown is a report a cautious person declines, and the cautious people are
+ * disproportionately the ones running an app like this for a guild.
+ */
+ipcMain.handle('diagnostics:report', () => ({
+  report: buildReport(),
+  appVersion: CLIENT_VERSION,
+  platform: `${process.platform} ${process.arch}`,
+  directory: diagnosticsDirectory(),
+}));
+
+/** Show them the log in Explorer, for anyone who would rather read the whole thing. */
+ipcMain.handle('diagnostics:openFolder', () => {
+  const dir = diagnosticsDirectory();
+  if (dir) void shell.openPath(dir);
+});
+
+/**
+ * Send it to Raidify.
+ *
+ * The summary is derived here rather than in the renderer: the last ERROR line in the log is
+ * a better title than anything the UI could guess, and it means the admin list sorts into
+ * recognisable groups without anybody writing a subject line.
+ */
+ipcMain.handle('diagnostics:send', async (_event, note: unknown) => {
+  const report = buildReport();
+  const settings = loadSettings();
+
+  const summary =
+    report
+      .split('\n')
+      .reverse()
+      .find((line) => line.includes(' ERROR '))
+      ?.slice(0, 300) ?? 'Companion report (no error recorded)';
+
+  const result = await api.sendErrorReport({
+    report,
+    summary,
+    userNote: typeof note === 'string' && note.trim() ? note.trim().slice(0, 2000) : undefined,
+    appVersion: CLIENT_VERSION,
+    platform: `${process.platform} ${process.arch}`,
+    guildId: settings.guildId,
+  });
+
+  logInfo(`Diagnostic report sent (${result.reportId})`);
+  return result;
+});
+
+/**
+ * Errors the renderer saw, forwarded so they land in the same file as everything else.
+ *
+ * A React render error or a rejected promise in the UI is invisible to the main process, and
+ * it is the half of the app the officer is actually looking at when something goes wrong.
+ */
+ipcMain.handle('diagnostics:reportRendererError', (_event, payload: unknown) => {
+  const { message, stack } = (payload ?? {}) as { message?: string; stack?: string };
+  const error = new Error(message ?? 'Unknown renderer error');
+  if (stack) error.stack = stack;
+  logError('Error in the window', error);
+});
 
 /** Whether a downloaded update is sitting there waiting for a restart. */
 ipcMain.handle('update:status', () => updateReady);

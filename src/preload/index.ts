@@ -102,8 +102,59 @@ const bridge = {
     ipcRenderer.on('wow:error', listener);
     return () => ipcRenderer.removeListener('wow:error', listener);
   },
+
+  /** Exactly what a report would contain, so the officer can read it before sending. */
+  diagnosticsReport: (): Promise<{
+    report: string;
+    appVersion: string;
+    platform: string;
+    directory: string | null;
+  }> => ipcRenderer.invoke('diagnostics:report'),
+
+  /** Send it to Raidify. `note` is what the officer typed about what they were doing. */
+  sendDiagnostics: (note: string): Promise<{ reportId: string }> =>
+    ipcRenderer.invoke('diagnostics:send', note),
+
+  openLogFolder: (): Promise<void> => ipcRenderer.invoke('diagnostics:openFolder'),
+
+  /** Forward a renderer-side error so it lands in the same log as everything else. */
+  reportRendererError: (error: { message: string; stack?: string }): Promise<void> =>
+    ipcRenderer.invoke('diagnostics:reportRendererError', error),
 };
 
 export type CompanionBridge = typeof bridge;
 
 contextBridge.exposeInMainWorld('companion', bridge);
+
+/*
+ * Catch what the window itself throws.
+ *
+ * Installed in the preload rather than in React so it covers errors thrown before the app
+ * mounts, which is exactly when a broken build fails. Both handlers are best-effort: a
+ * logger that can throw during error handling turns one fault into two.
+ */
+/*
+ * `window` is not in this file's type environment — the preload is typechecked with the node
+ * config, because it imports from electron's main-adjacent surface. It genuinely runs in a
+ * browser context, so the global is real; only the types are absent.
+ */
+declare const window: {
+  addEventListener(type: string, handler: (event: never) => void): void;
+};
+
+const report = (message: string, stack?: string): void => {
+  void ipcRenderer.invoke('diagnostics:reportRendererError', { message, stack }).catch(() => {});
+};
+
+window.addEventListener('error', (event: never) => {
+  const e = event as unknown as { message?: string; error?: unknown };
+  report(e.message ?? 'Unknown error', e.error instanceof Error ? e.error.stack : undefined);
+});
+
+window.addEventListener('unhandledrejection', (event: never) => {
+  const reason = (event as unknown as { reason?: unknown }).reason;
+  report(
+    reason instanceof Error ? reason.message : String(reason),
+    reason instanceof Error ? reason.stack : undefined,
+  );
+});
