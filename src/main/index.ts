@@ -113,8 +113,26 @@ const CLIENT_VERSION: string = app.isPackaged
  * index.html — so every call died on `Unexpected token '<'` rather than saying anything
  * useful about what was wrong.
  */
-const WEB_BASE_URL = process.env.RAIDIFY_WEB_URL ?? 'https://www.raidify.app';
-const API_BASE_URL = process.env.RAIDIFY_API_URL ?? 'https://api.raidify.app';
+/**
+ * Whether the development hooks below are honoured at all.
+ *
+ * Every RAIDIFY_* environment variable in this file exists for the screenshot harness and the
+ * smoke test, both of which spawn the raw Electron binary — so they always run unpackaged and
+ * nothing legitimate needs these in a shipped build.
+ *
+ * Ungated they are a shipped liability rather than a hypothetical one: RAIDIFY_CAPTURE writes a
+ * screenshot of the window to any path, RAIDIFY_CAPTURE_TOKEN writes an API token to disk, and
+ * RAIDIFY_API_URL redirects where the bearer token is sent. Anything that can set an environment
+ * variable for this process could use them.
+ */
+const DEV_HOOKS = !app.isPackaged;
+
+/** Read an env hook, or nothing at all in a packaged build. */
+const devEnv = (name: string): string | undefined =>
+  DEV_HOOKS ? process.env[name] : undefined;
+
+const WEB_BASE_URL = devEnv('RAIDIFY_WEB_URL') ?? 'https://www.raidify.app';
+const API_BASE_URL = devEnv('RAIDIFY_API_URL') ?? 'https://api.raidify.app';
 
 let window: BrowserWindow | null = null;
 let watcher: SavedVariablesWatcher | null = null;
@@ -197,7 +215,7 @@ function createWindow(): void {
     width: 980,
     // Capture mode can ask for a taller window so a screenshot shows the whole app rather
     // than the top of a scroll. Ignored in normal use.
-    height: Number(process.env.RAIDIFY_CAPTURE_HEIGHT) || 720,
+    height: Number(devEnv('RAIDIFY_CAPTURE_HEIGHT')) || 720,
     minWidth: 760,
     minHeight: 560,
     show: false,
@@ -228,7 +246,7 @@ function createWindow(): void {
     // the build emitted — a mirror would have drifted the same way and reported success.
     // Ten lines behind an env var, in exchange for the one check that would have caught
     // shipping an app that could not do anything.
-    if (process.env.RAIDIFY_SMOKE === '1') {
+    if (devEnv('RAIDIFY_SMOKE') === '1') {
       void runSmokeCheck(window!);
       return;
     }
@@ -238,8 +256,9 @@ function createWindow(): void {
     // Same reasoning as smoke mode — this is the real main process, the real preload and
     // the real renderer, so what comes out is the app rather than a mock of it. A
     // screenshot taken any other way would be a picture of a harness.
-    if (process.env.RAIDIFY_CAPTURE) {
-      void runCapture(window!, process.env.RAIDIFY_CAPTURE);
+    const capturePath = devEnv('RAIDIFY_CAPTURE');
+    if (capturePath) {
+      void runCapture(window!, capturePath);
       return;
     }
 
@@ -333,7 +352,7 @@ async function runCapture(target: BrowserWindow, outPath: string): Promise<void>
      * review results, which are the point of the gate, would never appear in one.
      * `RAIDIFY_CAPTURE_CLICK` is button text to find and press, then settle again.
      */
-    const clickText = process.env.RAIDIFY_CAPTURE_CLICK;
+    const clickText = devEnv('RAIDIFY_CAPTURE_CLICK');
     if (clickText) {
       const clicked = await target.webContents.executeJavaScript(
         `(async () => {
@@ -502,7 +521,10 @@ ipcMain.handle('update:status', () => updateReady);
 ipcMain.handle('update:install', () => {
   if (!updateReady) return { restarting: false };
   watcher?.stop();
-  autoUpdater.quitAndInstall();
+  // isSilent, isForceRunAfter. The no-argument call defaults isSilent to false, which spawns
+  // the NSIS installer with its progress and finish pages — so "Restarting takes a few seconds"
+  // put the officer in front of an install wizard instead.
+  autoUpdater.quitAndInstall(true, true);
   return { restarting: true };
 });
 
@@ -934,18 +956,18 @@ if (!app.requestSingleInstanceLock()) {
      * Doing it after the window is up does not work either — storing the token and
      * reloading raced the capture's own wait.
      */
-    if (process.env.RAIDIFY_CAPTURE) {
-      if (process.env.RAIDIFY_CAPTURE_FRESH === '1') {
+    if (devEnv('RAIDIFY_CAPTURE')) {
+      if (devEnv('RAIDIFY_CAPTURE_FRESH') === '1') {
         clearToken();
         saveSettings({
           guildId: null, guildName: null,
           savedVariablesPath: null, lootSavedVariablesPath: null, installPath: null,
         });
       }
-      if (process.env.RAIDIFY_CAPTURE_TOKEN) saveToken(process.env.RAIDIFY_CAPTURE_TOKEN);
-      if (process.env.RAIDIFY_CAPTURE_SETTINGS) {
-        saveSettings(JSON.parse(process.env.RAIDIFY_CAPTURE_SETTINGS) as Partial<Settings>);
-      }
+      const captureToken = devEnv('RAIDIFY_CAPTURE_TOKEN');
+      if (captureToken) saveToken(captureToken);
+      const captureSettings = devEnv('RAIDIFY_CAPTURE_SETTINGS');
+      if (captureSettings) saveSettings(JSON.parse(captureSettings) as Partial<Settings>);
     }
 
     createWindow();

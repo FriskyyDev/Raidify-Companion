@@ -88,6 +88,33 @@ export function App() {
     })();
   }, [loadGuilds]);
 
+  /*
+   * Keep asking, while the answer is no.
+   *
+   * The compat check used to run exactly once, on mount. Anything other than "ok" then blocked
+   * every upload for the life of the window — and this app is built to stay open for weeks, so
+   * one cold start, one VPN handshake or one 502 disabled sending until somebody thought to
+   * quit and relaunch. The banner meanwhile said "Nights are kept until it comes back", which
+   * described a recovery that could not happen.
+   *
+   * Only while unhealthy: a working install must not poll a server it has no question for.
+   * Also on focus, because alt-tabbing back is exactly when somebody is wondering why it is
+   * still complaining.
+   */
+  const compatUnhealthy = compat !== null && compat.kind !== 'ok';
+  useEffect(() => {
+    if (!compatUnhealthy) return;
+
+    const recheck = () => void window.companion.checkCompat().then(setCompat);
+    const timer = setInterval(recheck, 60_000);
+    window.addEventListener('focus', recheck);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', recheck);
+    };
+  }, [compatUnhealthy]);
+
   // Subscribed once, for the life of the window. A flush landing while the officer reads
   // is the normal case — they alt-tab out of the game and the file arrives.
   useEffect(() => {
@@ -128,7 +155,7 @@ export function App() {
   // Newest first: the night just finished is the one the officer opened the app for.
   const ordered = [...nights].sort((a, b) => time(b.startedAt) - time(a.startedAt));
 
-  const uploadsBlocked = compat !== null && compat.kind !== 'ok';
+  const uploadsBlocked = compatUnhealthy;
 
   return (
     <div className="flex h-full flex-col">

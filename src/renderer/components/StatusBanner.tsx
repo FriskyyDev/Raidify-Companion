@@ -64,7 +64,10 @@ export function StatusBanner({ compat }: { compat: CompatVerdict | null }) {
         <Banner
           tone="warning"
           title="Can't reach Raidify"
-          body="Nights are kept until it comes back. Nothing is lost; nothing is uploaded yet."
+          // Says that something is still trying, which it now is — App re-checks every minute
+          // and whenever the window regains focus while this is showing. The old copy promised
+          // that nights were "kept until it comes back" without anything ever going back.
+          body="Nights are kept, and nothing is uploaded yet. Still trying — this clears itself when the connection returns."
         />
       );
   }
