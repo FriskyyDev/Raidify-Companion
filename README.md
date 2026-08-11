@@ -3,9 +3,15 @@
 Watches the Raidify addon's saved variables and uploads a finished raid night's
 attendance, so nobody has to paste an export string on a Tuesday.
 
-**Private until announcement.** A public repo named `Raidify-Companion` announces the
-feature as loudly as a blog post, and the no-pre-announcement rule is binding. Going
-public is a post-announcement decision.
+Windows, unsigned, per-user install. It updates itself from the releases on this repo.
+
+**What it touches**, so you do not have to take our word for it: it reads
+`Raidify.lua` and `Raidify_Loot.lua` from your WoW SavedVariables folder, and talks to
+`api.raidify.app`. Nothing else. Process Monitor and Fiddler will confirm both in about
+ten minutes, and we would rather you checked than trusted.
+
+The sign-in token it stores is encrypted with the OS credential store and can only upload
+for guilds you already manage. Revoke it any time from the web app.
 
 Plan of record: `docs/COMPANION_APP_PLAN.md` in the `raidify` repo.
 
