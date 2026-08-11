@@ -27,7 +27,7 @@ Plan of record: `docs/COMPANION_APP_PLAN.md` in the `raidify` repo.
 | **Unsigned** | signing hook stubbed, not wired | $120/yr against a free feature with no revenue. SmartScreen is two clicks for an audience that installs addons by unzipping folders |
 | **No native modules** | `wasmoon`, `safeStorage`, Node stdlib | The WCL Uploader ships zero `.node` files. Native modules mean per-platform rebuilds, per-platform breakage, and extra antivirus interest in an unsigned binary |
 | **Updates via GitHub releases** | `electron-updater` | Free CDN, no bucket, no manifest hosting |
-| **Types hand-written** | `src/shared/contract.ts` | Two endpoints. `npm run schema:pull` refreshes the reference OpenAPI document so a contract change is a diff to review |
+| **Types hand-written** | `src/shared/contract.ts` | A handful of endpoints, not worth a generator. `npm run schema:pull` refreshes `reference/openapi.json` — the companion's corner of the API only, filtered from a document of 248 paths — so a contract change is a diff to review |
 
 **Re-open signing** when any of these happens: a real antivirus false positive lands on
 users, revenue makes $120/yr trivial, or funnel data shows people abandoning at the
@@ -41,9 +41,9 @@ afternoon.
 ```
 src/
   main/                  Everything that touches disk, network or a credential
-    api.ts                 The only two calls that leave this machine
+    api.ts                 Every call that leaves this machine, and there are seven
     lua.ts                 Sandboxed Lua evaluation — and `toArray`, see below
-    savedVariables.ts      RaidifyDB.lua → a night, with .bak fallback
+    savedVariables.ts      Raidify.lua → a night, with .bak fallback
     discovery.ts           Finding the install, the flavour and the account
     watcher.ts             One flush → one read, debounced and size-stable
     secrets.ts             Token at rest, via safeStorage
