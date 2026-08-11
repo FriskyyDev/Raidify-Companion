@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "description": "Bridges the Raidify WoW addon's saved variables to the Raidify API.",
   "author": "FriskyyDev",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",

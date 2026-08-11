@@ -113,6 +113,14 @@ development hooks only work in an unpackaged build; a released one ignores them.
 The Raidify API and the in-game addon are separate projects and are not open source, so the
 end-to-end test in `src/main/live.test.ts` skips unless you point it at an API you can run.
 
+### Licence
+
+MIT. See [LICENSE](LICENSE).
+
+That covers the code. It does not cover the Raidify name or logo — if you publish something
+built from this, please do not call it Raidify Companion. The app installs unsigned, so the
+name is most of what tells someone a build is the real one.
+
 ### Layout
 
 ```
