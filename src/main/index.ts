@@ -220,7 +220,18 @@ function createWindow(): void {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#14161c',
+    /*
+     * The canvas, exactly — `--bg-canvas`, oklch(0.145 0.014 220), converted.
+     *
+     * This is what Electron paints before the renderer draws anything, so a value that
+     * disagrees with the page is a visible flash on every launch. It was #14161c, which is
+     * oklch L=0.201: the SURFACE lightness, not the canvas. The window has been opening a
+     * shade too light and settling darker.
+     *
+     * Must track --bg-canvas in index.css. There is no way to read a CSS token from here,
+     * so the two are kept in step by hand and this comment is the reason to bother.
+     */
+    backgroundColor: '#040c0e',
     webPreferences: {
       // .cjs, and it must stay that way: a sandboxed preload is not an ES module, and
       // electron.vite.config.ts forces CommonJS output to match. Getting this filename
@@ -400,15 +411,26 @@ async function runSmokeCheck(target: BrowserWindow): Promise<void> {
          // A working bridge and a blank window is a real combination: a thrown error in
          // App() leaves an empty root and every check above still passes. Poll rather
          // than sample once — first paint can beat the first render by a frame.
+         //
+         // The sentinel is deliberately structural rather than a sentence. This asserted
+         // the literal string "Raidify Companion" and broke the moment the header split
+         // the name and the qualifier into two elements — a styling change failing a
+         // smoke test that is supposed to be asking whether the app renders at all. A
+         // check coupled to copy fails on copy edits and teaches people to ignore it.
+         const rendered = () => {
+           const root = document.getElementById('root');
+           const text = document.body.innerText || '';
+           return { ok: !!root && root.childElementCount > 0 && text.includes('Raidify'), text };
+         };
+
          const deadline = Date.now() + 5000;
-         let text = '';
-         while (Date.now() < deadline) {
-           text = document.body.innerText || '';
-           if (text.includes('Raidify Companion')) break;
+         let last = rendered();
+         while (Date.now() < deadline && !last.ok) {
            await new Promise((r) => setTimeout(r, 100));
+           last = rendered();
          }
-         if (!text.includes('Raidify Companion')) {
-           return { ok: false, reason: 'the window rendered nothing (body: ' + JSON.stringify(text.slice(0, 120)) + ')' };
+         if (!last.ok) {
+           return { ok: false, reason: 'the window rendered nothing (body: ' + JSON.stringify(last.text.slice(0, 120)) + ')' };
          }
 
          return { ok: true, version: info.version };

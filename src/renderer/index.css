@@ -1,66 +1,183 @@
 @import 'tailwindcss';
 
 /*
- * Inter, bundled into the binary.
+ * Inter and Archivo, bundled into the binary.
  *
  * The renderer's CSP is `default-src 'self'` with `connect-src 'none'`, so a font CDN is
  * not a preference here — it is blocked. Bundling is the only option that keeps this app
  * looking like the web app, which is the whole point of copying the tokens.
+ *
+ * Archivo carries both axes (weight AND width) in one 88KB file. The width axis is the
+ * system rather than a bonus: expanded carries the wordmark, condensed carries the
+ * structural labels. 88KB is nothing inside a 91MB installer, and without it this app has
+ * no wordmark and no way to render a label the way the web app does.
  */
 @import '@fontsource-variable/inter';
+@import '@fontsource-variable/archivo/wdth.css';
 
 /*
- * Raidify theme — tokens copied from `apps/web/src/index.css`.
+ * Raidify — the instrument. Tokens tracked against `apps/web/src/index.css`.
  *
  * Copied, not shared. Sharing React components across repos means publishing and
  * versioning a package, which is real overhead for one maintainer; sharing tokens means
- * keeping one file in step. Consistency comes from the tokens, not the component code.
+ * keeping one file in step.
  *
- * Only the tokens this app actually uses are here — the web's full palette would be
- * dead weight in a tray-sized UI.
+ * THIS FILE HAD DRIFTED, and in the one way that mattered. It carried surfaces at hue 265
+ * chroma 0.005, which is precisely the palette the web app abandoned — at those values its
+ * surfaces landed within two decimal places of WoWAudit's, arrived at independently. The
+ * companion was wearing the greys the product deliberately walked away from, so the two
+ * did not look like one product on a screen showing both.
+ *
+ * The two laws everything below follows from:
+ *
+ *   1. THE CHROMA CEILING. Chrome <= 0.10. Anything carrying domain meaning >= 0.12.
+ *      Chrome and data may share a hue; never a saturation register.
+ *   2. SPEND CONTRAST, NOT HUE. The primary action is white. Zero chroma cannot collide
+ *      with the thirteen class colours and eight item qualities Blizzard already owns.
  */
 
 @theme {
-  /*
-   * Surfaces, mapped onto the same scale names the web app uses so the two stay in step.
-   * Cold neutral at hue 265, chroma <= 0.008.
-   */
-  --color-surface-50: oklch(0.265 0.008 265);
-  --color-surface-100: oklch(0.232 0.007 265);
-  --color-surface-200: oklch(0.196 0.006 265);
-  --color-surface-300: oklch(0.172 0.005 265);
-  --color-surface-900: oklch(0.150 0.005 265);
-  --color-surface-950: oklch(0.120 0.005 265);
+  /* ========================
+   * SURFACES — hue 220, chroma <= 0.018.
+   *
+   * Mapped onto Tailwind's `slate-*` scale names, exactly as the web app does, so a
+   * `bg-slate-800` in either codebase means the same surface. The names become a lie
+   * about hue and the truth about role.
+   * ======================== */
+  --color-slate-50:  oklch(0.985 0.004 220);
+  --color-slate-100: oklch(0.965 0.006 220);  /* text primary   - values, names, headings */
+  --color-slate-200: oklch(0.880 0.008 220);
+  --color-slate-300: oklch(0.780 0.010 220);  /* text secondary - body prose              */
+  --color-slate-400: oklch(0.620 0.012 220);  /* text tertiary  - column heads, meta      */
+  --color-slate-500: oklch(0.595 0.014 220);
+  --color-slate-600: oklch(0.595 0.016 220);  /* border strong  - input hover             */
+  --color-slate-700: oklch(0.320 0.018 220);  /* border default - card outlines           */
+  --color-slate-800: oklch(0.200 0.016 220);  /* surface        - cards, panels           */
+  --color-slate-900: oklch(0.145 0.014 220);  /* canvas         - the page                */
+  --color-slate-950: oklch(0.115 0.012 220);  /* deepest        - wells, code             */
+
+  /* ========================
+   * CAUTION — hue 75, chroma <= 0.09, under the ceiling.
+   *
+   * Against druid #FF7C0A and legendary #FF8000, both at chroma 0.19: same family,
+   * different register, never confusable as data.
+   * ======================== */
+  --color-amber-200: oklch(0.900 0.050 75);
+  --color-amber-300: oklch(0.850 0.070 75);
+  --color-amber-400: oklch(0.805 0.085 75);
+  --color-amber-500: oklch(0.760 0.090 75);
+  --color-amber-600: oklch(0.680 0.090 75);
+  --color-amber-700: oklch(0.580 0.080 75);
+
+  /* Controls 6, containers 10, modals 12. Pills read as marketing; rectangles read as data. */
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
 }
 
+/* ========================
+ * SEMANTIC LAYER
+ * ======================== */
 :root {
-  --background: oklch(0.150 0.005 265);
-  --foreground: oklch(0.965 0.003 265);
-  --card: oklch(0.196 0.006 265);
-  --border: oklch(0.310 0.007 265);
-  --muted: oklch(0.620 0.007 265);
+  --bg-canvas:  oklch(0.145 0.014 220);
+  --bg-sunken:  oklch(0.170 0.015 220);
+  --bg-surface: oklch(0.200 0.016 220);
+  --bg-raised:  oklch(0.238 0.017 220);
+  --bg-overlay: oklch(0.272 0.018 220);
+
+  --border-subtle:  oklch(0.265 0.016 220);
+  --border-default: oklch(0.320 0.018 220);
+  --border-strong:  oklch(0.420 0.020 220);
+
+  --text-primary:    oklch(0.965 0.006 220);
+  --text-secondary:  oklch(0.780 0.010 220);
+  --text-tertiary:   oklch(0.620 0.012 220);
+  --text-quaternary: oklch(0.470 0.013 220);
 
   /*
-   * The primary action is white, not gold.
+   * Two accents, split by job — identity against interaction.
    *
-   * Same reasoning as the web app: white has zero chroma, so it cannot be confused with
-   * anything the game owns, and it is the highest-contrast object on a near-black page.
-   * This app has no class colours in it today, but it will once it reports loot, and the
-   * time to not paint yourself into a corner is before that lands.
+   * Gold is the most contested hue in this category: Raider.IO is #ffbd0a, Wowhead's mark
+   * is orange, ThatsMyBIS uses #ffb400. Spending it on chrome puts us in their lane and
+   * turns a brand colour into wallpaper. So gold marks identity only — here, the wordmark
+   * — and nothing else in this app is allowed to use it.
+   *
+   * Signal does all the interaction work: focus rings, selection, the active state. At
+   * chroma 0.115 it sits under the 0.12 domain floor, so it never competes with a class
+   * colour, and on a hue-220 canvas it reads as the surface brightening rather than paint.
    */
-  --primary: oklch(0.965 0.003 265);
-  --accent: oklch(0.720 0.070 215);
+  --signal:     oklch(0.745 0.115 208);
+  --signal-dim: oklch(0.745 0.115 208 / 0.16);
 
-  /* Under the chroma ceiling, same as the web tokens. */
-  --success: oklch(0.720 0.090 158);
-  --warning: oklch(0.760 0.090 75);
-  --error: oklch(0.630 0.100 22);
+  --gold:      oklch(0.800 0.140 82);
+  --gold-deep: oklch(0.680 0.130 78);
+
+  --state-positive: oklch(0.720 0.090 158);
+  --state-caution:  oklch(0.760 0.090 75);
+  --state-negative: oklch(0.630 0.100 22);
+
+  /* Legacy aliases — the components in this app read these names. */
+  --background: var(--bg-canvas);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-hover: var(--bg-raised);
+  --border: var(--border-default);
+  --muted: var(--text-tertiary);
 
   /*
-   * Inter is bundled rather than fetched. The renderer's CSP is `default-src 'self'` with
-   * `connect-src 'none'`, so a font CDN is not merely discouraged here — it is blocked.
+   * White, not gold. Highest-contrast object on a near-black page always wins "where do I
+   * click" without costing a hue.
    */
+  --primary: var(--text-primary);
+  --accent: var(--signal);
+  --success: var(--state-positive);
+  --warning: var(--state-caution);
+  --error: var(--state-negative);
+
   --font-sans: 'Inter Variable', 'Inter', -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif;
+  --font-display: 'Archivo Variable', 'Archivo', 'Inter Variable', system-ui, sans-serif;
+
+  /* Framework defaults everywhere is the most legible "nobody designed this" tell available. */
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --duration-instant: 90ms;
+  --duration-quick:   170ms;
+}
+
+/* ========================
+ * TYPE
+ *
+ * Two faces, hard rule. Archivo names things — the wordmark and the structural labels.
+ * Inter carries every number and every value. A display face in a data field is costume.
+ * ======================== */
+
+/*
+ * Headings take the display face, at the same widths the web app uses. Archivo opens up as
+ * it gets bigger, so the larger sizes tighten rather than loosen.
+ */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-stretch: 96%;
+}
+
+h1 { font-stretch: 94%; }
+
+/* The widest thing in the product. Used nowhere but the mark. */
+.wordmark {
+  font-family: var(--font-display);
+  font-stretch: 118%;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+
+.label-structural {
+  font-family: var(--font-display);
+  font-stretch: 74%;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
 }
 
 html,
@@ -69,16 +186,75 @@ body,
   height: 100%;
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
   font-family: var(--font-sans);
-  /* It is a desktop app, not a document — a text-selection drag across the chrome
-     reads as a bug. Inputs and results opt back in. */
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Focus is Signal, everywhere, and it is never removed.
+ *
+ * An Electron window has no browser chrome to fall back on, so a control with no visible
+ * focus ring is genuinely unreachable for anyone driving this by keyboard.
+ */
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/*
+ * Text is not selectable by default, because this is an app rather than a document and a
+ * stray drag selecting a paragraph reads as a broken window. The `selectable` class opts
+ * a value back in — paths, versions, references, anything somebody may need to copy.
+ */
+body {
   user-select: none;
+  cursor: default;
 }
 
 .selectable {
   user-select: text;
+  cursor: text;
+}
+
+/*
+ * The scrollbar, same rules as the web app.
+ *
+ * Chromium's default is a light-grey bar that is the brightest object on the page in a dark
+ * app — and unlike a browser tab, an Electron window has no surrounding chrome to excuse it.
+ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

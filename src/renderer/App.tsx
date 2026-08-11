@@ -12,6 +12,7 @@ import { NightCard } from './components/NightCard';
 import { SetupPanel } from './components/SetupPanel';
 import { StatusBanner } from './components/StatusBanner';
 import { ReportProblem } from './components/ReportProblem';
+import mark from './assets/raidify-mark.png';
 
 interface AppInfo {
   version: string;
@@ -159,12 +160,31 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold">Raidify Companion</h1>
-          <p className="text-sm text-[var(--muted)]">
-            Sends your attendance and loot to Raidify, so nobody has to paste anything.
-          </p>
+      <header className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-6 py-3">
+        {/*
+          The same lockup the web app puts in its sidebar: the mark at 32px, then the name
+          in Inter semibold with tight tracking. Matched deliberately rather than
+          approximated — two products showing two different wordmarks on one desktop is
+          exactly the drift this pass exists to remove.
+
+          "Companion" is the structural label rather than part of the name, which is what
+          `label-structural` is for and what the web app does with its own qualifiers.
+
+          The tagline that used to sit here is gone. It explained the app on every single
+          launch, and this app is designed to stay open for weeks — a sentence you have
+          read four hundred times is furniture. The setup panel introduces the app once,
+          to the only person who has not met it.
+        */}
+        <div className="flex items-center gap-2.5">
+          <img src={mark} alt="" className="h-8 w-8" />
+          <div className="flex flex-col leading-none">
+            <span className="text-lg font-semibold tracking-tight text-[var(--text-primary)]">
+              Raidify
+            </span>
+            <span className="label-structural mt-0.5 text-[var(--text-quaternary)]">
+              Companion
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {/*
@@ -208,7 +228,9 @@ export function App() {
             <button
               type="button"
               className="rounded px-3 py-1.5 text-sm font-medium"
-              style={{ background: 'var(--accent)', color: '#14161c' }}
+              // Dark text on Signal. Was a hardcoded #14161c, which stopped matching
+              // anything the moment the surfaces moved to hue 220.
+              style={{ background: 'var(--accent)', color: 'var(--bg-canvas)' }}
               onClick={() => void window.companion.installUpdate()}
             >
               Restart now
