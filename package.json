@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "package": "npm run build && npm run smoke && electron-builder --win --ia32 --publish never",
     "release": "npm run build && npm run smoke && electron-builder --win --ia32 --publish always",
+    "release:linux": "npm run build && electron-builder --linux --x64 --publish always",
     "schema:pull": "node scripts/pull-schema.mjs",
     "smoke": "node scripts/smoke.cjs"
   },

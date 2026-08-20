@@ -58,6 +58,35 @@ const COMMON_ROOTS = [
   'D:\\Games\\World of Warcraft',
 ];
 
+/**
+ * Where a Wine prefix keeps its C: drive, relative to $HOME.
+ *
+ * On Linux the game runs under Wine, so the install sits inside a prefix and the path to it
+ * depends on which launcher put it there. These are the defaults for the three launchers
+ * people actually use; a prefix anywhere else is picked by hand, which has always worked
+ * because `findSavedVariables` only needs a path.
+ *
+ * Steam/Proton first: it is the only one whose prefix location is fixed by the launcher
+ * rather than chosen by the user.
+ */
+const LINUX_PREFIX_ROOTS = [
+  // Steam Proton. 2769240 is the Battle.net app id most WoW-on-Proton setups use.
+  '.steam/steam/steamapps/compatdata/2769240/pfx/drive_c',
+  '.local/share/Steam/steamapps/compatdata/2769240/pfx/drive_c',
+  // Lutris, default prefix naming.
+  'Games/battlenet/drive_c',
+  '.wine/drive_c',
+  // Bottles, flatpak and native data directories.
+  '.var/app/com.usebottles.bottles/data/bottles/bottles/battlenet/drive_c',
+  '.local/share/bottles/bottles/battlenet/drive_c',
+];
+
+/** Where WoW ends up inside a prefix, under that prefix's C: drive. */
+const PREFIX_GAME_PATHS = [
+  'Program Files (x86)/World of Warcraft',
+  'Program Files/World of Warcraft',
+];
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -165,16 +194,30 @@ export async function findSavedVariables(installPath: string): Promise<SavedVari
  * reputation to spend on looking like a file scanner.
  */
 export async function autoDetect(): Promise<SavedVariablesCandidate[]> {
-  const roots = new Set(COMMON_ROOTS);
+  const roots = new Set<string>();
 
-  // The standard install locations, resolved against this machine's actual Program
-  // Files paths rather than assumed to be on C:. This does NOT consult Battle.net's
-  // product.db or the registry, so a non-default install — E:\Games\... — will not be
-  // found here and has to be picked by hand. Worth doing properly one day; until then
-  // this comment is the honest version.
-  for (const envVar of ['ProgramFiles(x86)', 'ProgramFiles', 'ProgramW6432']) {
-    const base = process.env[envVar];
-    if (base) roots.add(join(base, 'World of Warcraft'));
+  if (process.platform === 'linux') {
+    // Wine prefixes. Nothing on Linux is Windows-shaped, so the Program Files sweep below
+    // would only add paths that cannot exist.
+    const home = process.env.HOME;
+    if (home) {
+      for (const prefix of LINUX_PREFIX_ROOTS) {
+        for (const game of PREFIX_GAME_PATHS) {
+          roots.add(join(home, prefix, game));
+        }
+      }
+    }
+  } else {
+    for (const root of COMMON_ROOTS) roots.add(root);
+
+    // The standard install locations, resolved against this machine's actual Program Files
+    // paths rather than assumed to be on C:. This does NOT consult Battle.net's product.db
+    // or the registry, so a non-default install will not be found here and has to be picked
+    // by hand. Worth doing properly one day; until then this comment is the honest version.
+    for (const envVar of ['ProgramFiles(x86)', 'ProgramFiles', 'ProgramW6432']) {
+      const base = process.env[envVar];
+      if (base) roots.add(join(base, 'World of Warcraft'));
+    }
   }
 
   const results: SavedVariablesCandidate[] = [];

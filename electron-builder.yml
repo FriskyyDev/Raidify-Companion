@@ -12,11 +12,19 @@ files:
 
 asar: true
 
-# Windows only, by decision — see COMPANION_APP_PLAN §4 in the raidify repo.
-# macOS is dropped rather than deferred (Gatekeeper refuses unsigned bundles outright,
-# so it is $99/yr or nothing) and Linux went with it (every distributed platform is a
-# support surface, and Wine prefix discovery is the fiddliest of the three). Electron
-# still compiles both from this source whenever that changes.
+# Windows and Linux. macOS is still dropped rather than deferred: Gatekeeper refuses
+# unsigned bundles outright, so it is $99/yr or nothing.
+#
+# Linux was dropped alongside macOS on the grounds that every distributed platform is a
+# support surface and Wine prefix discovery is the fiddliest of the three. Reinstated
+# 2026-08-20 at the owner's request, and the ground has moved under the original reason:
+# the security-critical path was already written for Linux (secrets.ts detects a missing
+# keyring and refuses to persist a token in plaintext), and `findSavedVariables` takes any
+# path, so pointing at a Wine prefix by hand has always worked. Auto-detect now knows the
+# usual Proton, Lutris and Bottles locations too.
+#
+# AppImage only, on purpose. One artifact that runs on every distribution without a
+# package manager is one support surface; .deb and .rpm would be three.
 win:
   target:
     - target: nsis
@@ -43,8 +51,23 @@ nsis:
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: true
 
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  artifactName: raidify-companion-v${version}-${arch}.${ext}
+  category: Game
+  synopsis: Uploads your WoW raid night to Raidify
+  description: >-
+    Watches the file the Raidify addon writes when you log out and sends that night to
+    your guild, so nobody has to remember to paste an export string.
+
 # The update feed lives on GitHub releases — free CDN, no bucket, no manifest hosting.
 # The WCL Uploader's repo does exactly this and holds no source at all.
+#
+# Windows reads latest.yml and Linux reads latest-linux.yml, so the two platforms publish
+# side by side into one release without colliding.
 publish:
   provider: github
   owner: FriskyyDev

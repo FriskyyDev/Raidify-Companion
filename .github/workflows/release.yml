@@ -8,7 +8,10 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # Windows first, and it is the job that opens the draft. Publishing is a separate job that
+  # runs only once both platforms have uploaded, so a release is never visible carrying one
+  # platform's artifacts and not the other's.
+  windows:
     runs-on: windows-latest
 
     steps:
@@ -69,25 +72,75 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Linux, into the draft Windows opened. electron-builder writes `latest-linux.yml`
+  # alongside Windows' `latest.yml`, so the two update feeds sit in one release without
+  # colliding — and `needs` keeps them from racing to create it, which is the failure this
+  # workflow was built around in the first place.
+  linux:
+    needs: windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+
+      # No smoke step: scripts/smoke.cjs drives the packaged Windows binary.
+      - name: Build and publish the AppImage
+        run: npm run release:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Appended, not overwritten — the Windows job already put its own lines in this file.
+      - name: Checksums
+        run: |
+          cd dist
+          gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS.txt --output SHA256SUMS.txt --clobber
+          sha256sum *.AppImage >> SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+
+    steps:
       # Last, so a release is never visible without the artifacts and the checksums that
       # belong to it. This is also the step that makes it readable by electron-updater at
       # all: a draft is invisible to an anonymous fetch, so an unpublished release is an
       # update feed that silently does not exist.
       - name: Publish the release
-        shell: pwsh
-        run: gh release edit $env:GITHUB_REF_NAME --draft=false --latest
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
       # Proves the thing the whole arrangement depends on: that an anonymous client can read
       # the update manifest. Everything above can succeed while this fails — a private repo,
       # a release left as a draft, an asset that did not upload — and the symptom would be
       # silent, months later, on somebody else's machine.
-      - name: Verify the update feed is publicly readable
-        shell: pwsh
+      #
+      # Both feeds, because a Linux install updates off latest-linux.yml and would be just as
+      # silently stranded by a missing one.
+      - name: Verify both update feeds are publicly readable
         run: |
-          $url = "https://github.com/FriskyyDev/Raidify-Companion/releases/latest/download/latest.yml"
-          $res = Invoke-WebRequest -Uri $url -Headers @{ Authorization = $null } -MaximumRedirection 5
-          if ($res.StatusCode -ne 200) { throw "latest.yml returned $($res.StatusCode)" }
-          Write-Host "latest.yml is public:"
-          Write-Host $res.Content
+          for f in latest.yml latest-linux.yml; do
+            url="https://github.com/FriskyyDev/Raidify-Companion/releases/latest/download/$f"
+            code=$(curl -sSL -o "/tmp/$f" -w '%{http_code}' "$url")
+            if [ "$code" != "200" ]; then
+              echo "$f returned $code"
+              exit 1
+            fi
+            echo "$f is public:"
+            cat "/tmp/$f"
+          done
