@@ -52,6 +52,11 @@ nsis:
   deleteAppDataOnUninstall: true
 
 linux:
+  # Linux cannot use the Windows .ico — electron-builder's icon tool accepts only .png,
+  # .svg and .icns, and the first Linux release failed on exactly that. The .ico's largest
+  # frame is 256, so this is the same mark taken from the 512 the web app already ships
+  # rather than an upscale of it.
+  icon: resources/icon.png
   target:
     - target: AppImage
       arch:
