@@ -2,7 +2,7 @@
   "name": "raidify-companion",
   "//productName": "MUST match electron-builder.yml's productName. The NSIS uninstaller removes %APPDATA%/<productName>, while the app writes to %APPDATA%/<app.getName()> — and app.getName() falls back to `name` when this key is absent. Without it the two paths differ, deleteAppDataOnUninstall deletes an empty directory, and an uninstall leaves credentials.bin holding a token valid for up to 180 days.",
   "productName": "Raidify Companion",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Bridges the Raidify WoW addon's saved variables to the Raidify API.",
   "author": "FriskyyDev",
   "license": "MIT",
