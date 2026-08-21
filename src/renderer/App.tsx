@@ -7,6 +7,7 @@ import type {
   Settings,
 } from '../shared/types';
 import { nightKey } from '../shared/nightKey';
+import { autoChosenInstall } from '../shared/installChoice';
 import { LootExportCard } from './components/LootExportCard';
 import { NightCard } from './components/NightCard';
 import { SetupPanel } from './components/SetupPanel';
@@ -67,6 +68,24 @@ export function App() {
       setGuilds(null);
       setGuildsFailed(true);
     }
+  }, []);
+
+  /**
+   * Start watching one install, and remember it.
+   *
+   * Shared by the click on a results row and by the scans themselves, because a scan that
+   * finds exactly one install completes this step on its own now — see `autoChosenInstall`.
+   */
+  const chooseInstall = useCallback(async (candidate: SavedVariablesCandidate) => {
+    setSettings(
+      await window.companion.saveSettings({
+        savedVariablesPath: candidate.path,
+        // The loot file is derived in the main process from this install, not sent from
+        // here — it is a property of what discovery found, not a choice.
+        installPath: candidate.installPath,
+      }),
+    );
+    setWatchingPath((await window.companion.watch(candidate.path)).path);
   }, []);
 
   useEffect(() => {
@@ -273,6 +292,8 @@ export function App() {
             // looked like a dead button.
             setSearchedPath(null);
             setSearchOutcome(found.length > 0 ? 'found' : 'not-detected');
+            const auto = autoChosenInstall(found, watchingPath);
+            if (auto) await chooseInstall(auto);
           }}
           onBrowse={async () => {
             const result = await window.companion.browseForInstall();
@@ -280,20 +301,13 @@ export function App() {
             setSearchedPath(result.outcome === 'none' ? result.searchedPath : null);
             // A cancel leaves whatever was already on screen alone — the officer did not
             // ask us to forget the installs we had found.
-            if (result.outcome === 'found') setInstalls(result.candidates);
-            else if (result.outcome === 'none') setInstalls([]);
+            if (result.outcome === 'found') {
+              setInstalls(result.candidates);
+              const auto = autoChosenInstall(result.candidates, watchingPath);
+              if (auto) await chooseInstall(auto);
+            } else if (result.outcome === 'none') setInstalls([]);
           }}
-          onChooseInstall={async (candidate) => {
-            setSettings(
-              await window.companion.saveSettings({
-                savedVariablesPath: candidate.path,
-                // The loot file is derived in the main process from this install, not sent
-                // from here — it is a property of what discovery found, not a choice.
-                installPath: candidate.installPath,
-              }),
-            );
-            setWatchingPath((await window.companion.watch(candidate.path)).path);
-          }}
+          onChooseInstall={chooseInstall}
         />
 
         {watchError && (

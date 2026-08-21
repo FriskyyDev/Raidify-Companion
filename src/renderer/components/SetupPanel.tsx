@@ -253,30 +253,58 @@ export function SetupPanel({
             </p>
           )}
 
-          {installs !== null && installs.length > 0 && (
-            <ul className="mt-3 space-y-2">
-              {installs.map((candidate) => (
-                <li key={candidate.path}>
-                  <button
-                    type="button"
-                    className="w-full rounded border px-3 py-2 text-left text-sm"
-                    style={{
-                      borderColor:
-                        watchingPath === candidate.path ? 'var(--primary)' : 'var(--border)',
-                    }}
-                    disabled={busy !== null}
-                    onClick={() => void attempt('choose', () => onChooseInstall(candidate))}
-                  >
-                    <span className="block">
-                      {candidate.flavour} · {candidate.account}
-                    </span>
-                    <span className="selectable block text-xs text-[var(--muted)]">
-                      Last written {new Date(candidate.modifiedAt).toLocaleString()}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {/* Only ever shown when there is a genuine choice. A scan that finds one install
+              now chooses it, so the common case never reaches this list — a v0.2.1 report
+              had steps 1 and 2 ticked and step 3 not "although I have pointed to the folder
+              and the program has recognized the correct folder": the scan had worked and the
+              results list read as the answer rather than as a question nobody had asked. */}
+          {installs !== null && installs.length > 1 && (
+            <>
+              <p className="mt-3 text-sm">
+                More than one account here has Raidify data.{' '}
+                <strong>Pick the one this machine should watch.</strong>
+              </p>
+              <ul className="mt-2 space-y-2">
+                {installs.map((candidate) => {
+                  const chosen = watchingPath === candidate.path;
+                  return (
+                    <li key={candidate.path}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 rounded border px-3 py-2 text-left text-sm"
+                        style={{
+                          borderColor: chosen ? 'var(--success)' : 'var(--border)',
+                        }}
+                        disabled={busy !== null}
+                        onClick={() => void attempt('choose', () => onChooseInstall(candidate))}
+                      >
+                        <span>
+                          <span className="block">
+                            {candidate.flavour} · {candidate.account}
+                          </span>
+                          <span className="selectable block text-xs text-[var(--muted)]">
+                            Last written {new Date(candidate.modifiedAt).toLocaleString()}
+                          </span>
+                        </span>
+                        {/* Said in words as well as in the border, because a colour alone is
+                            not a state anyone can read. */}
+                        {chosen && (
+                          <span className="shrink-0 text-xs text-[var(--success)]">Watching</span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
+          {/* Which file this is actually reading. Without it "step 3 is done" is a tick with
+              nothing behind it, and an officer with two installs cannot tell which one won. */}
+          {fileChosen && watchingPath && (
+            <p className="mt-3 text-xs text-[var(--muted)]">
+              Watching <code className="selectable">{watchingPath}</code>
+            </p>
           )}
         </Step>
       </ol>
